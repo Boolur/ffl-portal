@@ -28,6 +28,22 @@ describe('Arive sync visibility', () => {
     expect(render(null)).toBe('');
     expect(renderToStaticMarkup(createElement(AriveSyncBadge, { view: null }))).toBe('');
   });
+  it('identifies a full cohort on a new file and suppresses a stale queued indicator', () => {
+    const waiting = view({ enabled: false, workerOwner: 'GENERALIZED', pilotPreview: true,
+      pilotRefreshHold: 'COHORT_FULL', enrollmentStatus: 'PENDING', manualRefreshRequestedAt: '2026-11-12T18:00:00Z',
+      stage: null, stageLabel: null, lastSuccessAt: null });
+    const html = render(waiting);
+    expect(html).toContain('Waiting for a Pilot cohort opening');
+    expect(html).toContain('Cohort full');
+    expect(html).toContain('disabled=""');
+    expect(html).not.toContain('Refresh queued');
+    expect(html).not.toContain('Waiting for the shared queue');
+    expect(ariveSyncActionFeedback('sync', { success: true, queued: false, reason: 'COHORT_FULL' }).message).toContain('when a place opens');
+    expect(ariveSyncActionFeedback('sync', { success: true, queued: false, reason: 'IN_PROGRESS' }).message).toContain('already checking');
+    const denied = render({ ...waiting, enrollmentStatus: 'REVIEW', error: 'Arive returned HTTP 403.' });
+    expect(denied).toContain('Arive access denied');
+    expect(denied).toContain('Cohort full');
+  });
   it('shows status but no sync management actions without management permission', () => {
     const html = render(view());
     expect(html).toContain('Application intake');

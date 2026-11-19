@@ -2822,7 +2822,11 @@ export async function queueLeadershipPilotRefresh(input: {pipelineId:string; wat
   if (!row) return {success:false as const,error:'File unavailable.'};
   const {requestPilotFileRefresh,runLeadershipPilotCollection} = await import('@/lib/ariveLeadershipPilotWorker');
   const queued = await requestPilotFileRefresh(input.pipelineId,{watch:input.watch === true,expectedIdentityHash:pilotIdentityHash(row.loan)});
-  if (!queued.queued) return {success:false as const,error:'Collection is paused or this file is unavailable.'};
+  if (!queued.queued) {
+    if (queued.reason === 'COHORT_FULL' || queued.reason === 'IN_PROGRESS')
+      return {success:true as const,queued:false as const,reason:queued.reason};
+    return {success:false as const,error:queued.reason === 'PAUSED' ? 'Pilot collection is paused.' : 'This file is unavailable for Pilot collection.'};
+  }
   if (!input.watch) after(async ()=>{await runLeadershipPilotCollection({pipelineId:input.pipelineId});});
   return {success:true as const,queued:true as const};
 }

@@ -1,6 +1,7 @@
 import { PrismaClient, UserRole } from '@prisma/client';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { pilotIdentityHash } from '../../lib/ariveLeadershipPilotIdentity';
+import { readPilotCoverage } from '../../lib/leadershipPilotReads';
 
 // This opt-in acceptance test requires its own freshly initialized PostgreSQL
 // database. The explicit loopback fixture URL is the only accepted connection.
@@ -213,5 +214,34 @@ describe.skipIf(!setup.url)('isolated Pilot and Standard server actions against 
       rows: [{ id: row.id, ariveSync: { enabled: false, enrollmentStatus: 'REVIEW' } }],
     });
     expect(await getProcessingAriveSnapshot(row.id)).toMatchObject({ success: false });
+  }, 30_000);
+
+  it('shows an undiscovered loan waiting in a full cohort and leaves its Standard workspace alone', async () => {
+    vi.stubEnv('PILOT_VIEW_ENABLED', 'true');
+    const admin = await db.user.create({ data: { role: 'ADMIN_III', name: 'Coverage Fixture',
+      email: 'coverage@example.test', pilotViewEnabled: true } });
+    const connection = await db.ariveIntegrationConfig.upsert({ where: { id: 'company' },
+      create: { id: 'company', encryptedCredentials: 'fixture', updatedById: admin.id }, update: {} });
+    await db.pilotAriveControl.create({ data: { id: 'company', enabled: true, cohortLimit: 10 } });
+    let newId = '';
+    for (let index = 0; index <= 10; index++) {
+      const loan = await db.loan.create({ data: { loanNumber: String(91500000 + index),
+        borrowerName: 'Coverage Fixture', amount: 150000, loanOfficerId: admin.id },
+        include: { loanOfficer: true, secondaryLoanOfficer: true } });
+      const task = await db.task.create({ data: { loanId: loan.id, assignedUserId: admin.id, title: 'Coverage fixture', kind: 'SUBMIT_PROCESSING' } });
+      const row = await db.processingPipelineLoan.create({ data: { loanId: loan.id, sourceTaskId: task.id, processingMethod: 'SELF_PROCESSED' } });
+      if (index === 10) { newId = row.id; continue; }
+      await db.pilotAriveProjection.create({ data: { pipelineId: row.id, ariveLoanId: loan.loanNumber,
+        enrollmentStatus: 'VERIFIED', ariveGuid: 'synthetic-' + index, identityHash: pilotIdentityHash(loan),
+        connectionRevision: connection.updatedAt, collectedAt: new Date() } });
+    }
+    setup.session.mockResolvedValue({ user: { id: admin.id, role: admin.role, activeRole: admin.role } });
+    expect(await getProcessingBorrowerDetails(newId)).toMatchObject({ success: true,
+      details: { ariveSync: { pilotRefreshHold: 'COHORT_FULL', enrollmentStatus: 'PENDING', manualRefreshRequestedAt: null } } });
+    expect(await readPilotCoverage({ loan: { loanNumber: { startsWith: '9150' } } }, new Date()))
+      .toMatchObject({ eligible: 11, waiting: 1, verified: 10, pending: 0 });
+    expect(await db.pilotAriveProjection.findUnique({ where: { pipelineId: newId } })).toBeNull();
+    await db.user.update({ where: { id: admin.id }, data: { pilotViewEnabled: false } });
+    expect(await getProcessingBorrowerDetails(newId)).toMatchObject({ success: true, details: { ariveSync: null } });
   }, 30_000);
 });

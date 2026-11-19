@@ -12,7 +12,7 @@ export function LeadershipCollectorSettings() {
   const refresh = useCallback(async () => {
     const result = await getLeadershipCollectorStatus();
     if (result.success) setStatus(result);
-    else setError(result.error);
+    else { setStatus(null); setError(result.error); }
   }, []);
   useEffect(() => {
     void refresh();
@@ -35,9 +35,14 @@ export function LeadershipCollectorSettings() {
     {status && <>
       <p>{status.enabled ? 'Collecting' : 'Paused'} · {status.limit === null ? 'All verified files' : 'Cohort of ' + status.limit}</p>
       <dl className="grid gap-3 text-sm sm:grid-cols-3">
-        {Object.entries({ 'Verified files': status.counts.VERIFIED || 0, 'Awaiting review': status.counts.REVIEW || 0,
-          'Checked in the past minute': status.fresh, 'Requests completed per minute': status.requests,
-          'Throttled requests in the past minute': status.throttled, 'Oldest overdue refresh': status.oldestDueSeconds + ' s',
+        {Object.entries({ 'Files eligible for Pilot verification': status.coverage.eligible,
+          'Verified files': status.coverage.verified, 'Pending verification': status.coverage.pending,
+          'Waiting for a cohort opening': status.coverage.waiting, 'Arive access denied': status.coverage.inaccessible,
+          'Other matches needing review': status.coverage.review, 'Excluded practice files': status.coverage.excluded,
+          'Verified active files checked in the past minute': `${status.coverage.activeFresh} / ${status.coverage.verifiedActive}`,
+          'Verified funded or archived files checked in the past hour': `${status.coverage.quietFresh} / ${status.coverage.verifiedQuiet}`,
+          'Requests completed per minute': status.requests,
+          'Throttled requests in the past minute': status.throttled, 'Oldest overdue verified refresh': status.coverage.oldestDueSeconds + ' s',
           'Arive response time (p95)': status.p95Ms === null ? 'No recent sample' : status.p95Ms + ' ms',
           'Total time per reserved request (p95)': status.reservedP95Ms === null ? 'No recent sample' : status.reservedP95Ms + ' ms',
           'Limit reported by Arive': status.reportedPerMinute ? status.reportedPerMinute + ' per minute' : 'No header received',

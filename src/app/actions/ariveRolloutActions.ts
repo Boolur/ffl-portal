@@ -13,6 +13,7 @@ import { ARIVE_ACTIVE_INTERVAL_MS, ARIVE_QUIET_INTERVAL_MS, ARIVE_ROLLOUT_CONNEC
 import { ARIVE_SYNC_PILOT } from '@/lib/ariveSyncTypes';
 import { sampleAriveTestReadTiming } from '@/lib/ariveReadTiming';
 import { compareSavedAriveLoanAccess } from '@/lib/ariveLoanAccessDiagnostic';
+import { readPilotCoverage } from '../../lib/leadershipPilotReads';
 
 async function admin() {
   const session = await getServerSession(authOptions);
@@ -76,12 +77,13 @@ export async function getLeadershipCollectorStatus() {
   try {
     const actor = await admin();
     if (!actor.pilotViewEnabled || process.env.PILOT_VIEW_ENABLED !== 'true') throw new AriveError('Turn on Pilot to see collection metrics.');
-    const since = new Date(Date.now() - 60_000);
-    const [control, counts, fresh, due, requests, throttled, timings, transport, [display]] = await Promise.all([
+    const now = new Date();
+    const since = new Date(+now - 60_000);
+    const [control, coverage, requests, throttled, timings, transport, [display]] = await Promise.all([
       prisma.pilotAriveControl.findUnique({ where: { id: 'company' } }),
-      prisma.pilotAriveProjection.groupBy({ by: ['enrollmentStatus'], _count: true }),
-      prisma.pilotAriveProjection.count({ where: { enrollmentStatus: 'VERIFIED', collectedAt: { gte: since } } }),
-      prisma.pilotAriveProjection.findFirst({ where: { enrollmentStatus: 'VERIFIED', nextAttemptAt: { lt: new Date() } }, orderBy: { nextAttemptAt: 'asc' }, select: { nextAttemptAt: true } }),
+      readPilotCoverage({ OR: [ariveRolloutCohortWhere(now),
+        { pilotArive: { is: { enrollmentStatus: 'VERIFIED', routingProvenance: { path: ['kind'], equals: 'ARCHIVE' } } } },
+      ] }, now),
       prisma.ariveTransportRequest.count({ where: { connectionId: 'company', kind: { startsWith: 'PILOT_' }, finishedAt: { gte: since } } }),
       prisma.ariveTransportRequest.count({ where: { connectionId: 'company', kind: { startsWith: 'PILOT_' }, statusCode: 429, finishedAt: { gte: since } } }),
       prisma.ariveTransportRequest.findMany({ where: { connectionId: 'company', kind: { startsWith: 'PILOT_' }, finishedAt: { gte: since } }, orderBy: { finishedAt: 'desc' }, take: 100, select: { startedAt: true, finishedAt: true, responseMs: true } }),
@@ -97,8 +99,7 @@ export async function getLeadershipCollectorStatus() {
     const p95 = (values: number[]) => values.length ? values.sort((a,b) => a-b)[Math.ceil(values.length * 0.95) - 1] : null;
     const upstream = timings.flatMap(row => row.responseMs === null ? [] : [row.responseMs]);
     return { success: true as const, enabled: control?.enabled === true, limit: control ? control.cohortLimit : 10,
-      counts: Object.fromEntries(counts.map(row => [row.enrollmentStatus, row._count])), fresh, requests, throttled, display,
-      oldestDueSeconds: due?.nextAttemptAt ? Math.max(0, Math.round((Date.now() - due.nextAttemptAt.getTime()) / 1000)) : 0,
+      coverage, requests, throttled, display,
       p95Ms: p95(upstream), reservedP95Ms: p95(timings.map(row => row.finishedAt!.getTime() - row.startedAt.getTime())),
       reportedPerMinute: transport?.reportedRequestsPerMinute ?? null,
       cooldownUntil: transport?.cooldownUntil?.toISOString() || null,

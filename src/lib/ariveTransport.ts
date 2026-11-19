@@ -16,6 +16,7 @@ export type AriveRuntime = {
 export type AriveRequestReservation = { id: string; connectionId: string; keyFingerprint: string; kind: string; startedAt: Date; leaseUntil: Date; finishedAt: Date | null; statusCode: number | null };
 export type AriveTransportTransaction = {
   leadershipPilotGeneration?(): Promise<number | null>;
+  pilotAdmission?(now: Date): Promise<{ runtime: AriveRuntime | null; generation: number | null; active: number }>;
   runtime(): Promise<AriveRuntime | null>;
   updateRuntime(patch: Partial<AriveRuntime>): Promise<void>;
   recentRequests(key: string, since: Date): Promise<{ count: number; oldest: Date | null }>;
@@ -111,15 +112,17 @@ export async function createAriveTransportSession(options: AriveTransportOptions
   const sleep = options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
   const fingerprint = (c: TransportCredentials, kind: 'key' | 'credentials') => ariveTransportFingerprint(c, options.encryptionSecret, kind);
 
-  async function request<T>(c: TransportCredentials, kind: string, run: (recordStatus: (response: Response) => Promise<void>) => Promise<T>): Promise<T> {
+  async function request<T>(c: TransportCredentials, kind: string, run: (recordStatus: (response: Response) => Promise<void>, reservedToken: string | null) => Promise<T>): Promise<T> {
     const key = fingerprint(c, 'key');
     const id = randomUUID();
     const reserve = () => options.store.transaction(async tx => {
-      const now = clock(); const runtime = await tx.runtime();
+      const now = clock();
+      const admission = options.leadershipPilot && tx.pilotAdmission ? await tx.pilotAdmission(now) : null;
+      const runtime = admission ? admission.runtime : await tx.runtime();
       const quota = assertAriveTransportReady(runtime, key, now);
       const quotas: (typeof quota)[] = [];
       if (options.leadershipPilot) {
-        const generation = await tx.leadershipPilotGeneration?.();
+        const generation = admission ? admission.generation : await tx.leadershipPilotGeneration?.();
         if (generation == null || (pilotGeneration !== undefined && generation !== pilotGeneration)) {
           throw new AriveTransportError('DISABLED', 'Leadership collection was paused or reconfigured.');
         }
@@ -134,19 +137,38 @@ export async function createAriveTransportSession(options: AriveTransportOptions
         quotas.push({ limit: reported, seconds: 60, allowance: Math.max(1, Math.floor(reported * 0.8)) });
       }
       if (runtime!.cooldownUntil && runtime!.cooldownUntil > now) throw new AriveTransportError('COOLDOWN', 'Arive requests are paused until the provider cooldown ends.', runtime!.cooldownUntil);
-      if (await tx.activeRequests(now) >= 2) throw new AriveTransportError('BUSY', 'Two Arive requests are already running. Please retry shortly.', new Date(now.getTime() + 1000));
+      if ((admission ? admission.active : await tx.activeRequests(now)) >= 2) throw new AriveTransportError('BUSY', 'Two Arive requests are already running. Please retry shortly.', new Date(now.getTime() + 1000));
       for (const rollingQuota of quotas) {
         const recent = await tx.recentRequests(key, new Date(now.getTime() - rollingQuota.seconds * 1000));
         if (recent.count >= rollingQuota.allowance) throw new AriveTransportError('BUDGET_EXHAUSTED', 'The reserved Arive request allowance has been reached. Please retry after the window resets.', new Date((recent.oldest?.getTime() ?? now.getTime()) + rollingQuota.seconds * 1000 + 1));
       }
+      let reservedToken: string | null = null;
+      if (options.leadershipPilot && kind !== 'AUTH') {
+        // The locked runtime used for admission also holds the current token.
+        // Validate its exact credential fingerprint and expiry at the actual
+        // reservation, including after a busy wait or a credential rotation.
+        if (runtime!.credentialFingerprint === fingerprint(c, 'credentials') && runtime!.encryptedAccessToken
+          && runtime!.accessTokenExpiresAt && +runtime!.accessTokenExpiresAt > +now + TOKEN_SKEW_MS) {
+          try { reservedToken = options.decrypt(runtime!.encryptedAccessToken); } catch { /* Use coordinated refresh. */ }
+        }
+        if (!reservedToken) throw new AriveTransportError('TOKEN_REQUIRED', 'A current shared Arive token is required.');
+      }
       await tx.createRequest({ id, connectionId: 'company', keyFingerprint: key, kind: options.leadershipPilot ? 'PILOT_' + kind : kind, startedAt: now, leaseUntil: new Date(now.getTime() + REQUEST_LEASE_MS), finishedAt: null, statusCode: null });
-      return { source: runtime!.allowanceSource, operatorLimit: runtime!.operatorRequestLimit, authorizedAt: runtime!.operatorAuthorizedAt?.getTime() ?? null };
+      return { source: runtime!.allowanceSource, operatorLimit: runtime!.operatorRequestLimit, authorizedAt: runtime!.operatorAuthorizedAt?.getTime() ?? null, reservedToken };
     });
     const waitStarted = clock().getTime();
     const reserveWhenAvailable = async () => {
+      let refreshed = false;
       for (let attempt = 0; ; attempt++) {
         try { return await reserve(); }
         catch (error) {
+          if (error instanceof AriveTransportError && error.code === 'TOKEN_REQUIRED' && !refreshed) {
+            refreshed = true;
+            if (fingerprint(await options.credentials(), 'credentials') !== fingerprint(c, 'credentials'))
+              throw new AriveTransportError('CREDENTIALS_CHANGED', 'The Arive connection changed before the request.');
+            await token(c);
+            continue;
+          }
           // Wait only for an unreserved slot. Nothing was sent or charged, so
           // this never retries a write or bypasses cooldown/key/budget checks.
           const elapsed = clock().getTime() - waitStarted;
@@ -205,7 +227,7 @@ export async function createAriveTransportSession(options: AriveTransportOptions
           // can mistake it for an identity/matching failure or a failed loan read.
           throw new AriveTransportError('COOLDOWN', 'Arive requests are paused until the provider cooldown ends.', retryAt);
         }
-      });
+      }, authorization.reservedToken);
     } finally {
       await options.store.finishRequest(id, clock(), status, responseMs);
     }
@@ -276,11 +298,12 @@ export async function createAriveTransportSession(options: AriveTransportOptions
     if (options.readOnly && (body !== undefined || method !== undefined)) throw new AriveTransportError('READ_ONLY', 'Broader synchronization only reads from Arive.');
     const c = await options.credentials();
     const sameCredentials = fingerprint(c, 'credentials') === fingerprint(initialCredentials, 'credentials');
-    let accessToken = options.freshAuthentication && sameCredentials ? initialToken : await token(c);
+    let accessToken = options.leadershipPilot ? '' : options.freshAuthentication && sameCredentials ? initialToken : await token(c);
     initialCredentials = c; initialToken = accessToken;
     const verb = method ?? (body ? 'POST' : 'GET');
     for (let attempt = 0; attempt < 2; attempt++) {
-      const result = await request(c, attempt ? 'GET_RETRY' : verb, async status => {
+      const result = await request(c, attempt ? 'GET_RETRY' : verb, async (status, reservedToken) => {
+        if (reservedToken) accessToken = reservedToken;
         const response = await fetcher(`${BASE}${path}`, { method: verb, headers: { 'Content-Type': 'application/json', 'X-API-KEY': c.apiKey, Authorization: `Bearer ${accessToken}` }, ...(body ? { body: JSON.stringify(body) } : {}), cache: 'no-store', signal: AbortSignal.timeout(25_000), redirect: 'error' });
         await status(response);
         if (response.status === 401 && verb === 'GET' && attempt === 0) { await response.body?.cancel(); return { retry: true as const }; }

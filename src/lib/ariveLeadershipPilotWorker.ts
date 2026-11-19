@@ -53,6 +53,7 @@ type Tx = Prisma.TransactionClient;
 const lock = (tx: Tx) => tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('arive-leadership-pilot'))`;
 const transactionOptions = { maxWait: 10_000, timeout: 20_000 };
 const allowedEnvironment = () => !process.env.VERCEL_ENV || process.env.VERCEL_ENV === 'production';
+class PilotSourceChanged extends Error {}
 
 async function practiceEligibility(
   db: Pick<Tx, 'arivePracticeLoan' | 'task'>,
@@ -130,10 +131,10 @@ async function discover(db: typeof prisma, now: Date) {
           },
         },
       },
-      // Materialize current coverage across the whole active pipeline even
-      // when the operator admits only ten files for provider collection.
-      orderBy: [{sheet:'asc'}, {createdAt:'desc'}],
-      take: 1000,
+      // Keep this transaction short while submissions and manual refreshes use the
+      // same lock. Later runs pick up the remaining rows through pilotArive: null.
+      orderBy: [{ sheet: 'asc' }, { createdAt: 'desc' }, { id: 'asc' }],
+      take: 100,
     });
     if (candidates.length) {
       const config = await tx.ariveIntegrationConfig.findUnique({
@@ -184,23 +185,32 @@ async function discover(db: typeof prisma, now: Date) {
 export async function requestPilotFileRefresh(
   pipelineId: string,
   options: { watch?: boolean; expectedIdentityHash?: string } = {},
+  db: typeof prisma = prisma,
 ) {
-  if (!allowedEnvironment()) return { queued: false };
-  return prisma.$transaction(async (tx) => {
+  if (!allowedEnvironment()) return { queued: false, reason: 'UNAVAILABLE' } as const;
+  return db.$transaction(async (tx) => {
     await lock(tx);
     const control = await tx.pilotAriveControl.findUnique({ where: { id: CONNECTION } });
-    if (!control?.enabled) return { queued: false };
+    if (!control?.enabled) return { queued: false, reason: 'PAUSED' } as const;
     const row = await tx.processingPipelineLoan.findUnique({
       where: { id: pipelineId },
       select: {
         loan: { select: rolloutLoanSelect },
-        pilotArive: { select: { enrollmentStatus: true, manualRefreshRequestedAt: true } },
+        pilotArive: { select: { enrollmentStatus: true, manualRefreshRequestedAt: true, leaseToken: true, leaseUntil: true } },
       },
     });
     if (!row || (options.expectedIdentityHash && options.expectedIdentityHash !== pilotIdentityHash(row.loan)))
-      return { queued: false };
-    if (row.pilotArive?.enrollmentStatus === 'EXCLUDED') return { queued: false };
+      return { queued: false, reason: 'UNAVAILABLE' } as const;
+    if (row.pilotArive?.enrollmentStatus === 'EXCLUDED') return { queued: false, reason: 'EXCLUDED' } as const;
     const now = new Date();
+    const reading = Boolean(row.pilotArive?.leaseToken && row.pilotArive.leaseUntil && row.pilotArive.leaseUntil > now);
+    if (control.cohortLimit !== null && row.pilotArive?.enrollmentStatus !== 'VERIFIED' && !reading) {
+      const reserved = await tx.pilotAriveProjection.count({
+        where: { OR: [{ enrollmentStatus: 'VERIFIED' }, { leaseToken: { not: null }, leaseUntil: { gt: now } }] },
+      });
+      if (reserved >= control.cohortLimit) return { queued: false, reason: 'COHORT_FULL' } as const;
+    }
+    if (reading && !options.watch) return { queued: false, reason: 'IN_PROGRESS' } as const;
     const data = options.watch
       ? { watchedUntil: new Date(+now + 2 * MINUTE) }
       : { manualRefreshRequestedAt: row.pilotArive?.manualRefreshRequestedAt ?? now };
@@ -209,7 +219,7 @@ export async function requestPilotFileRefresh(
       create: { pipelineId, ariveLoanId: row.loan.loanNumber, ...data },
       update: data,
     });
-    return { queued: true };
+    return { queued: true } as const;
   });
 }
 
@@ -225,19 +235,23 @@ function isEligible(file: { sheet: string; archivedAt: Date | null; fundedAt: Da
 async function claim(db: typeof prisma, now: Date, pipelineId: string | undefined, preferWatched: boolean) {
   return db.$transaction(async (tx) => {
     await lock(tx);
-    const control = await tx.pilotAriveControl.findUnique({ where: { id: CONNECTION } });
-    if (!control?.enabled) return null;
-    const leased = { leaseUntil: { gt: now }, leaseToken: { not: null } };
-    const active = await tx.pilotAriveProjection.count({ where: leased });
-    if (active >= 2) return null;
-    const reserved =
-      control.cohortLimit === null
-        ? 0
-        : await tx.pilotAriveProjection.count({
-            where: { OR: [{ enrollmentStatus: 'VERIFIED' }, leased] },
-          });
+    // Read the cohort slots, global lease slots and connection revision in one
+    // snapshot after acquiring the same lock used by the operator and publishers.
+    const [capacity] = await tx.$queryRaw<Array<{
+      generation: number; cohortLimit: number | null; revision: Date; active: number; reserved: number;
+    }>>`
+      SELECT c.generation,c."cohortLimit",a."updatedAt" AS revision,slots.active,slots.reserved
+      FROM "PilotAriveControl" c JOIN "AriveIntegrationConfig" a ON a.id=c.id
+      CROSS JOIN LATERAL (
+        SELECT COUNT(*) FILTER (WHERE p."leaseToken" IS NOT NULL AND p."leaseUntil">${now})::int AS active,
+               COUNT(*)::int AS reserved
+        FROM "PilotAriveProjection" p
+        WHERE p."enrollmentStatus"='VERIFIED' OR (p."leaseToken" IS NOT NULL AND p."leaseUntil">${now})
+      ) slots
+      WHERE c.id=${CONNECTION} AND c.enabled`;
+    if (!capacity || capacity.active >= 2) return null;
     const statuses =
-      control.cohortLimit !== null && reserved >= control.cohortLimit
+      capacity.cohortLimit !== null && capacity.reserved >= capacity.cohortLimit
         ? ['VERIFIED']
         : ['PENDING', 'VERIFIED', 'REVIEW'];
     const eligible: Prisma.PilotAriveProjectionWhereInput = {
@@ -286,11 +300,6 @@ async function claim(db: typeof prisma, now: Date, pipelineId: string | undefine
       prioritized ??
       (await tx.pilotAriveProjection.findFirst({ where: eligible, orderBy: order, include: includeFile }));
     if (!row) return null;
-    const revision = await tx.ariveIntegrationConfig.findUnique({
-      where: { id: CONNECTION },
-      select: { updatedAt: true },
-    });
-    if (!revision) return null;
     const token = randomUUID();
     await tx.pilotAriveProjection.update({
       where: { pipelineId: row.pipelineId },
@@ -302,10 +311,29 @@ async function claim(db: typeof prisma, now: Date, pipelineId: string | undefine
         hintRequestedAt: null,
       },
     });
-    return { row, revision: revision.updatedAt, started: now, token, generation: control.generation };
+    return { row, revision: capacity.revision, started: now, token, generation: capacity.generation };
   }, transactionOptions);
 }
 type Claim = NonNullable<Awaited<ReturnType<typeof claim>>>;
+
+/** Caller holds the collector lock. Both a published snapshot and new review
+ * evidence must still describe the same loan, connection and unexpired lease. */
+async function currentPilotSource(tx: Tx, job: Claim, matchHash: string, clock: () => Date) {
+  const { row, token } = job;
+  const [publication] = await tx.$queryRaw<Array<{ generation: number; revision: Date }>>`
+    SELECT c.generation,a."updatedAt" AS revision
+    FROM "AriveIntegrationConfig" a JOIN "PilotAriveControl" c ON c.id=a.id
+    CROSS JOIN "ProcessingPipelineLoan" p JOIN "Loan" l ON l.id=p."loanId"
+    WHERE a.id=${CONNECTION} AND c.enabled AND p.id=${row.pipelineId} AND l.id=${row.pipeline.loan.id}
+    FOR SHARE OF a,p,l`;
+  const current = await tx.pilotAriveProjection.findUnique({ where: { pipelineId: row.pipelineId }, include: includeFile });
+  const now = clock();
+  if (!publication || publication.generation !== job.generation || +publication.revision !== +job.revision ||
+      !current || current.leaseToken !== token || !current.leaseUntil || current.leaseUntil <= now ||
+      current.projectionVersion !== row.projectionVersion || pilotIdentityHash(current.pipeline.loan) !== matchHash ||
+      (!isEligible(current.pipeline, now) && !row.manualRefreshRequestedAt && jsonRecord(current.routingProvenance).kind !== 'ARCHIVE')) return null;
+  return {current, now};
+}
 
 async function collect(db: typeof prisma, job: Claim, options: Options) {
   const { row, started, token } = job;
@@ -339,11 +367,10 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
       try {
         return await session(path);
       } catch (error) {
-        if (error instanceof AriveError && /^Arive API request returned HTTP (403|404)\b/.test(error.message)) {
-          throw new PilotMatchReview(
-            'The branch connection could not access this loan. Review Arive permissions and the loan ID.',
-          );
-        }
+        if (error instanceof AriveError && /^Arive API request returned HTTP 403\b/.test(error.message))
+          throw new PilotMatchReview('Arive returned HTTP 403. The branch connection was denied access to this loan.');
+        if (error instanceof AriveError && /^Arive API request returned HTTP 404\b/.test(error.message))
+          throw new PilotMatchReview('Arive returned HTTP 404. The requested loan or resource was unavailable.');
         throw error;
       }
     };
@@ -391,40 +418,17 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
     if (identity.issues.length) throw new PilotMatchReview('Arive loan, borrower or originator did not match.');
     const trackers = await api(`${path}/trackers`);
     const notes = await readAriveNotes(guid, api);
-    if (stableAriveValue(details) !== stableAriveValue(await api(path))) throw new Error('INCOMPLETE');
+    if (stableAriveValue(details) !== stableAriveValue(await api(path)))
+      throw new PilotSourceChanged('Arive loan details changed during this read. The last complete snapshot was retained.');
     const permanentGuid = guid;
     return await db.$transaction(async (tx) => {
       await lock(tx);
-      await tx.$queryRaw`SELECT "id" FROM "AriveIntegrationConfig" WHERE "id"=${CONNECTION} FOR SHARE`;
-      await tx.$queryRaw`SELECT "id" FROM "ProcessingPipelineLoan" WHERE "id"=${row.pipelineId} FOR SHARE`;
-      await tx.$queryRaw`SELECT "id" FROM "Loan" WHERE "id"=${loan.id} FOR SHARE`;
-      const current = await tx.pilotAriveProjection.findUnique({
-        where: { pipelineId: row.pipelineId },
-        include: includeFile,
-      });
-      const control = await tx.pilotAriveControl.findUnique({ where: { id: CONNECTION } });
-      const credential = await tx.ariveIntegrationConfig.findUnique({
-        where: { id: CONNECTION },
-        select: { updatedAt: true },
-      });
-      const now = clock();
-      if (
-        !control?.enabled ||
-        control.generation !== job.generation ||
-        current?.leaseToken !== token ||
-        !current.leaseUntil ||
-        current.leaseUntil <= now ||
-        current.projectionVersion !== row.projectionVersion ||
-        credential?.updatedAt.getTime() !== job.revision.getTime() ||
-        (!isEligible(current.pipeline, now) &&
-          !row.manualRefreshRequestedAt &&
-          jsonRecord(current.routingProvenance).kind !== 'ARCHIVE') ||
-        pilotIdentityHash(current.pipeline.loan) !== matchHash ||
-        !(await practiceEligibility(tx, current.pipeline, number, permanentGuid)).allowed
-      ) {
+      const source = await currentPilotSource(tx, job, matchHash, clock);
+      if (!source || !(await practiceEligibility(tx, source.current.pipeline, number, permanentGuid)).allowed) {
         await tx.pilotAriveProjection.updateMany({ where: owner, data: { leaseUntil: null, leaseToken: null } });
         return 'held' as const;
       }
+      const { current, now } = source;
       const projected = leadershipPilotProjection({
         current: current.pipeline,
         loan: current.pipeline.loan,
@@ -464,7 +468,9 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
           failureCount: 0,
           leaseUntil: null,
           leaseToken: null,
-          nextAttemptAt: new Date(+now + next),
+          // Read duration already consumes the polling interval. Keep the start
+          // cadence without imposing a second full interval after publication.
+          nextAttemptAt: new Date(Math.max(+now, +started + next)),
         },
       });
       if (changed || current.lastError || current.failureCount) {
@@ -476,7 +482,8 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
     const review = error instanceof PilotMatchReview;
     const deferred = error instanceof AriveTransportError;
     const now = clock();
-    const message = review
+    const changedDuringRead = error instanceof PilotSourceChanged;
+    const message = review || changedDuringRead
       ? error.message
       : deferred
         ? `Arive collection deferred (${error.code}).`
@@ -484,7 +491,7 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
     const retry =
       deferred && error.retryAt && error.retryAt > now
         ? error.retryAt
-        : new Date(+now + (review ? 24 * HOUR : Math.min(HOUR, 30_000 * 2 ** Math.min(row.failureCount, 6))));
+        : new Date(+now + (review ? 24 * HOUR : Math.min(HOUR, (changedDuringRead ? 2_000 : 30_000) * 2 ** Math.min(row.failureCount, 6))));
     await db.$transaction(async (tx) => {
       await lock(tx);
       const control = await tx.pilotAriveControl.findUnique({ where: { id: CONNECTION } });
@@ -492,10 +499,17 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
         await tx.pilotAriveProjection.updateMany({ where: owner, data: { leaseUntil: null, leaseToken: null } });
         return;
       }
+      const source = review ? await currentPilotSource(tx, job, matchHash, clock) : null;
+      if (review && !source) {
+        await tx.pilotAriveProjection.updateMany({ where: owner, data: { leaseUntil: null, leaseToken: null } });
+        return;
+      }
       const changed = await tx.pilotAriveProjection.updateMany({
         where: owner,
         data: {
           ...(review ? { enrollmentStatus: excluded ? 'EXCLUDED' : 'REVIEW', enrollmentIssue: message } : {}),
+          ...(source && !source.current.collectedAt
+            ? { ariveLoanId: number, identityHash: matchHash, connectionRevision: job.revision } : {}),
           lastError: message,
           failureCount: { increment: 1 },
           leaseUntil: null,
@@ -534,16 +548,44 @@ export async function runLeadershipPilotCollection(options: Options = {}) {
       /* An unavailable hint feed cannot suppress the fair reconciliation sweep. */
     }
   }
-  while (Date.now() < deadlineMs - 30_000 && checked < 500) {
-    const first = await claim(db, now(), options.pipelineId, true);
-    if (!first) break;
-    const second = options.pipelineId ? null : await claim(db, now(), undefined, false);
-    const work = second ? [first, second] : [first];
-    const results = await Promise.all(work.map((job) => collect(db, job, { ...options, deadlineMs })));
-    checked += results.length;
-    succeeded += results.filter((result) => result === 'verified').length;
-    deferred += results.filter((result) => result === 'deferred').length;
-    if (options.pipelineId || deferred) break;
+  async function drain(preferWatched: boolean) {
+    while (!deferred && Date.now() < deadlineMs - 30_000 && checked < 500) {
+      const job = await claim(db, now(), options.pipelineId, preferWatched);
+      if (!job) {
+        if (!preferWatched || options.pipelineId) break;
+        // A small cohort can finish every due job between cron ticks. Wake
+        // once its next verified file is due instead of waiting a full minute.
+        // Overlapping invocations still compete through the same locked claim.
+        const sampledAt = now();
+        const [upcoming] = await db.$queryRaw<Array<{ due: Date }>>`
+          SELECT p."nextAttemptAt" AS due FROM "PilotAriveProjection" p
+          JOIN "PilotAriveControl" c ON c.id=${CONNECTION} AND c.enabled
+          WHERE p."enrollmentStatus"='VERIFIED' AND p."nextAttemptAt">${sampledAt}
+            AND p."nextAttemptAt"<=${new Date(+sampledAt+30_000)}
+            AND (p."leaseToken" IS NULL OR p."leaseUntil"<=${sampledAt})
+            AND (SELECT COUNT(*) FROM "PilotAriveProjection" active WHERE active."leaseToken" IS NOT NULL
+                 AND active."leaseUntil">${sampledAt})<2
+          ORDER BY p."nextAttemptAt" LIMIT 1`;
+        if (!upcoming) break;
+        const delay = Math.max(50, +upcoming.due - +now());
+        if (Date.now() + delay >= deadlineMs - 30_000) break;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+      checked++;
+      const result = await collect(db, job, { ...options, deadlineMs });
+      if (result === 'verified') succeeded++;
+      if (result === 'deferred') deferred++;
+      if (options.pipelineId) break;
+    }
   }
+  // Each finished loan releases its lane immediately, including when its
+  // neighbor is still collecting a long note history. Both lanes use the
+  // same per-loan lease, cohort cap and provider request reservations.
+  const lanes = [drain(true)];
+  if (!options.pipelineId) lanes.push(drain(false));
+  const completed = await Promise.allSettled(lanes);
+  const failed = completed.find((lane) => lane.status === 'rejected');
+  if (failed) throw failed.reason;
   return { checked, succeeded, deferred };
 }

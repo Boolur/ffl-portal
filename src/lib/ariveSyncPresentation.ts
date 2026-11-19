@@ -1,4 +1,4 @@
-import type { AriveSyncView } from './ariveSyncTypes';
+import { isPilotAccessDenied, type AriveSyncView } from './ariveSyncTypes';
 import type { ProcessingItemStatus } from '@prisma/client';
 import { getProcessingPipelineLockedDefaults, getPayoffExpirationWarning, isAppraisalBackOverdue, isCdSentOverdue, isConditionItemOverdue, isOrderedItemOverdue, isRateLockExpiring, isRateLockOverdueAfterAppraisal, type LockedProcessingPipelineField } from './processingPipeline';
 
@@ -33,12 +33,15 @@ export function ariveSyncHealth(view: AriveSyncView | null | undefined, now = Da
   if (view.pilotPreview && !view.enabled) {
     if (view.enrollmentStatus === 'EXCLUDED') return {tone:'muted',label:'Practice file excluded'} as const;
     if (view.enrollmentStatus === 'REVIEW') {
-      if (/403|access denied|forbidden/i.test(view.error ?? '')) return {tone:'error',label:'Arive access denied'} as const;
+      if (isPilotAccessDenied(view.error)) return {tone:'error',label:'Arive access denied'} as const;
       if (/no exact|no accessible|no matching/i.test(view.error ?? '')) return {tone:'warning',label:'No Arive match'} as const;
       return {tone:'warning',label:'Arive match needs review'} as const;
     }
+    if (view.pilotRefreshHold === 'COHORT_FULL') return {tone:'muted',label:'Waiting for a Pilot cohort opening'} as const;
+    if (view.pilotRefreshHold === 'PAUSED') return {tone:'muted',label:'Pilot collection paused'} as const;
     return {tone:'pending',label:'Awaiting verified Arive data'} as const;
   }
+  if (view.pilotPreview && view.pilotRefreshHold === 'PAUSED') return {tone:'muted',label:'Pilot collection paused'} as const;
   if (!view.enabled) return { tone: 'muted', label: 'Arive sync paused' } as const;
   if (view.pilotPreview && view.lastSuccessAt && view.nextAttemptAt) {
     const last = Date.parse(view.lastSuccessAt);

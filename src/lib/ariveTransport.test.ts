@@ -48,6 +48,21 @@ function operatorFixture(limit = 120) {
 }
 
 describe('shared Arive request budget', () => {
+  it('resolves a valid Pilot token in the reservation and reauthenticates on expiry or secret rotation', async () => {
+    const h = operatorFixture();
+    const pilot = await createAriveTransportSession({ ...h.options, leadershipPilot: true, readOnly: true });
+    const transactions = vi.spyOn(h.options.store, 'transaction');
+    await pilot('/loans/example');
+    expect(transactions).toHaveBeenCalledTimes(1);
+    h.advance(3_550_000);
+    await pilot('/loans/example');
+    h.rotate({ secret: 'rotated-test-secret' });
+    await pilot('/loans/example');
+    expect(h.requests.map(row => row.kind)).toEqual(['PILOT_AUTH','PILOT_GET','PILOT_AUTH','PILOT_GET','PILOT_AUTH','PILOT_GET']);
+    const headers = h.fetcher.mock.calls.filter(([url]) => String(url).endsWith('/loans/example'))
+      .map(([, init]) => new Headers(init?.headers).get('authorization'));
+    expect(new Set(headers).size).toBe(3);
+  });
   it('removes only the operator ceiling for leadership reads and fences a running session on pause', async () => {
     const h = operatorFixture(10);
     const normal = await createAriveTransportSession(h.options);

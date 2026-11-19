@@ -19,6 +19,7 @@ export type AriveSyncServiceTracker = {
 };
 export type AriveSyncView = {
   pilotPreview?: boolean;
+  pilotRefreshHold?: 'COHORT_FULL' | 'PAUSED';
   enrollmentStatus?: string;
   projectionVersion?: number;
   enabled: boolean;
@@ -39,6 +40,10 @@ export type AriveSyncView = {
   serviceTrackers?: AriveSyncServiceTracker[];
   structuredFields?: { key: string; label: string; value: string | null; author: string; updatedAt: string | null }[];
 };
+
+export function isPilotAccessDenied(issue: string | null | undefined) {
+  return /\b403\b|access denied|denied access|forbidden/i.test(issue ?? '');
+}
 
 export function ariveSyncFieldLabel(field: string) {
   const labels: Record<string, string> = {

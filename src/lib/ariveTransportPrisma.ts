@@ -25,6 +25,15 @@ export function createPrismaAriveTransportStore(db: Database = prisma): AriveTra
     transaction: work => db.$transaction(async tx => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-transport:${CONNECTION}`}))`;
       return work({
+        pilotAdmission: async now => {
+          const [row] = await tx.$queryRaw<Array<AriveRuntime & { pilotGeneration: number | null; active: number }>>`
+            SELECT r.*,CASE WHEN c.enabled THEN c.generation END AS "pilotGeneration",
+              (SELECT COUNT(*)::int FROM "AriveTransportRequest" q WHERE q."connectionId"=r.id
+                AND q."finishedAt" IS NULL AND q."leaseUntil">${now}) AS active
+            FROM "AriveConnectionRuntime" r LEFT JOIN "PilotAriveControl" c ON c.id=r.id
+            WHERE r.id=${CONNECTION}`;
+          return { runtime: row ?? null, generation: row?.pilotGeneration ?? null, active: row?.active ?? 0 };
+        },
         leadershipPilotGeneration: async () => {
           const row = await tx.pilotAriveControl.findUnique({ where: { id: CONNECTION }, select: { generation: true, enabled: true } });
           return row?.enabled ? row.generation : null;

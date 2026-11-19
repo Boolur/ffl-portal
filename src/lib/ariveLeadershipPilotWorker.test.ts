@@ -95,7 +95,14 @@ function harness() {
     arivePracticeLoan: { findFirst: vi.fn().mockResolvedValue(null) },
     task: { findUnique: vi.fn() },
     $executeRaw: vi.fn(),
-    $queryRaw: vi.fn(),
+    $queryRaw: vi.fn(async (parts: TemplateStringsArray) => {
+      const sql = parts.join('?');
+      if (sql.includes('slots.active')) return control.enabled
+        ? [{ generation: control.generation, cohortLimit: control.cohortLimit, revision, active: 0, reserved: 0 }]
+        : [];
+      if (sql.includes('FOR SHARE OF a,p,l')) return control.enabled ? [{ generation: control.generation, revision }] : [];
+      return [];
+    }),
     $transaction: vi.fn(async (work) => work(db)),
   };
   const details = {
@@ -143,6 +150,7 @@ function harness() {
     advance: () => {
       clock = new Date(+clock + 60_000);
     },
+    advanceMs: (milliseconds: number) => { clock = new Date(+clock + milliseconds); },
   };
 }
 describe('leadership-only collection', () => {
@@ -320,6 +328,29 @@ describe('leadership-only collection', () => {
     expect(await h.run()).toMatchObject({ succeeded: 0 });
     expect(h.row).toMatchObject({ snapshot: {}, notes: [], collectedAt: null, leaseToken: null });
   });
+  it('counts time spent reading against the watch interval and rereads a concurrent edit promptly', async () => {
+    const h = harness();
+    h.row.watchedUntil = new Date('2026-04-15T13:00:00Z');
+    const provider = h.api.getMockImplementation()!;
+    h.api.mockImplementation(async path => {
+      if (path.endsWith('/trackers')) h.advanceMs(12_000);
+      return provider(path);
+    });
+    expect(await h.run()).toMatchObject({ succeeded: 1 });
+    expect(h.row.nextAttemptAt).toEqual(h.row.collectedAt);
+    const previous = structuredClone(h.row.snapshot);
+    let reads = 0;
+    h.api.mockImplementation(async path => {
+      if (path === '/loans/test-guid' && ++reads === 2) return { ...h.details, totalLoanAmount: 160000 };
+      return provider(path);
+    });
+    expect(await h.run()).toMatchObject({ succeeded: 0 });
+    expect(h.row).toMatchObject({
+      snapshot: previous, projectionVersion: 1,
+      lastError: expect.stringContaining('changed during this read'),
+      nextAttemptAt: new Date('2026-04-15T12:00:14Z'),
+    });
+  });
   it('does not publish another borrower or consume API calls while paused', async () => {
     const h = harness();
     h.control.enabled = false;
@@ -330,12 +361,37 @@ describe('leadership-only collection', () => {
     expect(await h.run()).toMatchObject({ succeeded: 0 });
     expect(h.row).toMatchObject({ enrollmentStatus: 'REVIEW', projectionVersion: 0, notes: [] });
   });
-  it('quarantines explicitly denied file access and retains its last complete version privately', async () => {
+  it.each([403, 404])('records HTTP %s distinctly and retains its last complete version privately', async code => {
     const h = harness();
     await h.run();
     h.advance();
-    h.api.mockRejectedValueOnce(new AriveError('Arive API request returned HTTP 403. Request denied.'));
+    h.api.mockRejectedValueOnce(new AriveError(`Arive API request returned HTTP ${code}. Request failed.`));
     expect(await h.run()).toMatchObject({ succeeded: 0 });
-    expect(h.row).toMatchObject({ enrollmentStatus: 'REVIEW', projectionVersion: 1 });
+    expect(h.row).toMatchObject({ enrollmentStatus: 'REVIEW', enrollmentIssue: expect.stringContaining(`HTTP ${code}`), projectionVersion: 1 });
+  });
+  it('tags an initial denial with its checked identity and revision, never re-labeling a prior snapshot', async () => {
+    const h = harness();
+    const denied = new AriveError('Arive API request returned HTTP 403.');
+    h.api.mockRejectedValueOnce(denied);
+    await h.run();
+    expect(h.row).toMatchObject({ enrollmentStatus: 'REVIEW', collectedAt: null, identityHash: expect.any(String),
+      connectionRevision: new Date('2026-04-01'), ariveLoanId: '801' });
+    await h.run();
+    const previousConnection = new Date('2026-03-01');
+    Object.assign(h.row, { connectionRevision: previousConnection });
+    h.api.mockRejectedValueOnce(denied);
+    await h.run();
+    expect(h.row).toMatchObject({ enrollmentStatus: 'REVIEW', connectionRevision: previousConnection, projectionVersion: 1 });
+  });
+  it('does not store review evidence when the live identity changed while Arive was responding', async () => {
+    const h = harness();
+    h.api.mockImplementationOnce(async () => {
+      h.pipeline.loan.loanNumber = '802';
+      throw new AriveError('Arive API request returned HTTP 403.');
+    });
+    await h.run();
+    expect(h.row.enrollmentIssue).toBeUndefined();
+    expect(h.row.identityHash).toBeUndefined();
+    expect(h.row).toMatchObject({ collectedAt: null, leaseToken: null });
   });
 });

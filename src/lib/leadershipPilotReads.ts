@@ -4,7 +4,7 @@ import type { AriveLoanIdentity } from './ariveIdentity';
 import { pilotIdentityHash } from './ariveLeadershipPilotIdentity';
 import { ariveSyncView, jsonRecord } from './ariveSyncState';
 import { parseArivePipelineDate } from './arivePipelineMapping';
-import type { AriveSyncView } from './ariveSyncTypes';
+import { isPilotAccessDenied, type AriveSyncView } from './ariveSyncTypes';
 import { buildProcessingPipelineScopeWhere, type ProcessingPipelineScopeActor } from './processingPipeline';
 
 export const pilotIdentitySelect = {
@@ -25,12 +25,16 @@ type Projection = {
   enrollmentStatus: string;
   enrollmentIssue: string | null;
   sourceStage: string | null;
+  sheet?: string | null;
+  archivedAt?: Date | null;
   lastError: string | null;
   collectedAt: Date | null;
   lastAttemptAt: Date | null;
   nextAttemptAt: Date | null;
   manualRefreshRequestedAt: Date | null;
   projectionVersion: number;
+  pilotRefreshHold?: AriveSyncView['pilotRefreshHold'] | null;
+  reviewConnectionCurrent?: boolean;
   snapshot: Prisma.JsonValue;
   notes?: Prisma.JsonValue;
 };
@@ -43,6 +47,11 @@ export function usablePilotProjection(loan: AriveLoanIdentity, projection: Proje
     projection.ariveLoanId === loan.loanNumber &&
     projection.identityHash === pilotIdentityHash(loan)
   );
+}
+
+function currentReviewEvidence(loan: AriveLoanIdentity, projection: Projection) {
+  return projection.reviewConnectionCurrent === true && projection.ariveLoanId === loan.loanNumber &&
+    projection.identityHash === pilotIdentityHash(loan);
 }
 
 const managedPipelineFields = [
@@ -144,35 +153,93 @@ export function pilotSyncView(loan: AriveLoanIdentity, projection: Projection | 
     lastAttemptAt: projection?.lastAttemptAt ?? null,
     nextAttemptAt: projection?.nextAttemptAt ?? null,
     manualRefreshRequestedAt: projection?.manualRefreshRequestedAt ?? null,
-    lastError: projection?.lastError || projection?.enrollmentIssue || null,
+    lastError: status === 'REVIEW' && projection && !currentReviewEvidence(loan, projection)
+      ? 'This loan needs a new identity and access check on the current branch connection.'
+      : projection?.lastError || projection?.enrollmentIssue || null,
   };
   return {
     ...ariveSyncView(state, true, false, true)!,
     pilotPreview: true,
+    pilotRefreshHold: projection?.pilotRefreshHold ?? undefined,
     enrollmentStatus: status,
     projectionVersion: usable ? projection!.projectionVersion : undefined,
   };
 }
 
 /** The manifest needs only routing, filters and identity. Avoid sending 1003s, notes or raw source responses through the grid. */
-export async function readPilotProjections(ids: string[], detail: boolean | 'noteEvidence' = false) {
+export async function readPilotProjections(ids: string[], detail: boolean | 'noteEvidence' | 'coverage' = false) {
   if (!ids.length) return new Map<string, Projection>();
   const full = detail === true;
   const snapshot =
-    detail === 'noteEvidence'
+    detail === 'coverage' ? Prisma.sql`'{}'::jsonb` : detail === 'noteEvidence'
       ? Prisma.sql`jsonb_build_object('noteChangeEvidence', "snapshot"->'noteChangeEvidence', 'publishedAt', "snapshot"->'publishedAt')`
       : full
         ? Prisma.sql`"snapshot"`
         : Prisma.sql`jsonb_build_object(
     'managed', "snapshot"->'managed', 'canonicalLoan', "snapshot"->'canonicalLoan', 'issues', "snapshot"->'issues', 'publishedAt', "snapshot"->'publishedAt',
     'source', jsonb_build_object('stage', "sourceStage", 'stageLabel', "snapshot"#>'{source,stageLabel}', 'stageDate', "snapshot"#>'{source,stageDate}'))`;
-  const rows = await prisma.$queryRaw<Projection[]>`SELECT "pipelineId","ariveLoanId","ariveGuid","identityHash",
-    CASE WHEN "enrollmentStatus" = 'VERIFIED' AND "connectionRevision" IS DISTINCT FROM
-      (SELECT "updatedAt" FROM "AriveIntegrationConfig" WHERE "id" = 'company')
-      THEN 'REVIEW' ELSE "enrollmentStatus" END AS "enrollmentStatus","enrollmentIssue","sourceStage",
+  // Start from the requested IDs so a newly submitted loan can report its actual
+  // admission state before the scheduled worker creates its first projection.
+  const rows = await prisma.$queryRaw<Projection[]>`WITH capacity AS (
+    SELECT "enabled", "cohortLimit" IS NOT NULL AND "cohortLimit" <= (
+      SELECT count(*) FROM "PilotAriveProjection" WHERE "enrollmentStatus"='VERIFIED'
+        OR ("leaseToken" IS NOT NULL AND "leaseUntil">CURRENT_TIMESTAMP)
+    ) AS full FROM "PilotAriveControl" WHERE "id"='company'
+  )
+  SELECT requested.id AS "pipelineId","ariveLoanId","ariveGuid","identityHash",
+    CASE WHEN capacity.enabled IS NOT TRUE THEN 'PAUSED'
+      WHEN capacity.full AND COALESCE("enrollmentStatus",'PENDING') NOT IN ('VERIFIED','EXCLUDED')
+        AND ("leaseToken" IS NULL OR "leaseUntil" IS NULL OR "leaseUntil"<=CURRENT_TIMESTAMP)
+      THEN 'COHORT_FULL' END AS "pilotRefreshHold",
+    COALESCE("connectionRevision"=connection."updatedAt", FALSE) AS "reviewConnectionCurrent",
+    CASE WHEN "enrollmentStatus" = 'VERIFIED' AND ("connectionRevision" IS NULL OR "connectionRevision" IS DISTINCT FROM connection."updatedAt")
+      THEN 'REVIEW' ELSE COALESCE("enrollmentStatus",'PENDING') END AS "enrollmentStatus","enrollmentIssue","sourceStage","sheet","archivedAt",
     "lastError","collectedAt","lastAttemptAt","nextAttemptAt","manualRefreshRequestedAt","projectionVersion", ${snapshot} AS "snapshot" ${full ? Prisma.sql`, "notes"` : Prisma.empty}
-    FROM "PilotAriveProjection" WHERE "pipelineId" IN (${Prisma.join(ids)})`;
+    FROM unnest(ARRAY[${Prisma.join(ids)}]::text[]) AS requested(id)
+    LEFT JOIN "PilotAriveProjection" ON "pipelineId"=requested.id LEFT JOIN capacity ON TRUE
+    LEFT JOIN "AriveIntegrationConfig" connection ON connection."id"='company'`;
   return new Map(rows.map((row) => [row.pipelineId, row]));
+}
+
+export function summarizePilotCoverage(files: { id: string; sheet: string; loan: AriveLoanIdentity }[], projections: Map<string, Projection>, now: Date) {
+  const counts = { eligible: 0, verified: 0, pending: 0, waiting: 0, inaccessible: 0, review: 0, excluded: 0,
+    verifiedActive: 0, activeFresh: 0, verifiedQuiet: 0, quietFresh: 0, oldestDueSeconds: 0 };
+  for (const file of files) {
+    const projection = projections.get(file.id);
+    if (projection?.enrollmentStatus === 'EXCLUDED') {
+      counts.excluded++;
+      continue;
+    }
+    counts.eligible++;
+    if (projection && usablePilotProjection(file.loan, projection)) {
+      counts.verified++;
+      const age = +now - +projection.collectedAt!;
+      if (projection.archivedAt || (projection.sheet ?? file.sheet) === 'FUNDING') {
+        counts.verifiedQuiet++;
+        if (age >= 0 && age <= 60 * 60_000) counts.quietFresh++;
+      } else {
+        counts.verifiedActive++;
+        if (age >= 0 && age <= 60_000) counts.activeFresh++;
+      }
+      if (projection.nextAttemptAt && projection.nextAttemptAt < now)
+        counts.oldestDueSeconds = Math.max(counts.oldestDueSeconds, Math.floor((+now - +projection.nextAttemptAt) / 1000));
+    }
+    else if (projection?.enrollmentStatus === 'REVIEW' || projection?.enrollmentStatus === 'VERIFIED') {
+      if (currentReviewEvidence(file.loan, projection) && isPilotAccessDenied(projection.enrollmentIssue)) counts.inaccessible++;
+      else counts.review++;
+    } else if (projection?.pilotRefreshHold === 'COHORT_FULL') counts.waiting++;
+    else counts.pending++;
+  }
+  return counts;
+}
+
+export async function readPilotCoverage(where: Prisma.ProcessingPipelineLoanWhereInput, now: Date) {
+  const files = await prisma.processingPipelineLoan.findMany({
+    where,
+    select: { id: true, sheet: true, loan: { select: pilotIdentitySelect } },
+  });
+  const projections = await readPilotProjections(files.map(file => file.id), 'coverage');
+  return summarizePilotCoverage(files, projections, now);
 }
 
 function scalar(value: unknown): unknown {
