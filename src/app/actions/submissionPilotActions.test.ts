@@ -47,6 +47,47 @@ describe('leadership test submissions', () => {
     return p;
   }
   afterEach(() => vi.unstubAllEnvs());
+  it('uses the active LO role to read and return only their own submitted documents', async () => {
+    vi.stubEnv('PILOT_VIEW_ENABLED', 'true');
+    const user = { id: 'pilot-lo', active: true, name: 'Example officer', role: 'MANAGER', roles: ['LOAN_OFFICER'],
+      loanOfficerPilotEnabled: true, loQcSubmissionEnabled: true, pilotViewEnabled: false };
+    mocks.session.mockResolvedValue({ user: { id: user.id, activeRole: 'LOAN_OFFICER' } });
+    mocks.db.user.findUnique.mockResolvedValue(user);
+    const p = packageTask(); p.leadershipTest = true; p.leadershipSubmitterId = user.id; p.state = 'CHANGES';
+    p.items.forEach(item => { item.waiver = 'Not applicable'; });
+    p.items[0].files = [{ id: 'f', path: 'private/sample.pdf', name: 'sample.pdf', size: 12, type: 'application/pdf', uploadedAt: '' }];
+    const pkg = await mocks.db.task.findUnique();
+    pkg.loan.loanOfficerId = user.id;
+    const waiting = { ...parent, workflowState: 'WAITING_ON_LO', status: 'BLOCKED', updatedAt: new Date(),
+      submissionData: { ...parent.submissionData, leadershipTestSubmitterId: user.id } };
+    const child = { ...waiting, id: 'correction', kind: 'LO_NEEDS_INFO', parentTaskId: waiting.id, assignedUserId: user.id };
+    mocks.db.task.findUnique.mockImplementation(async ({ where }) => where.id === waiting.id ? waiting : where.id === child.id ? child : pkg);
+    mocks.db.task.findFirst.mockResolvedValue(waiting);
+    expect(await getSubmissionPilot(child.id)).toMatchObject({ success: true, data: { owner: true } });
+    expect(await getSubmissionPilot(waiting.id, 'JR')).toMatchObject({ success: false });
+    expect(await changeSubmissionPilot({ taskId: pkg.id, revision: 0, action: 'CLAIM' })).toMatchObject({ success: false });
+    mocks.signedUrl.mockResolvedValue({ data: { signedUrl: 'signed-sample' } });
+    expect(await downloadPilotFile(pkg.id, 'f')).toMatchObject({ success: true });
+    pkg.loan.loanOfficerId = 'different';
+    expect(await downloadPilotFile(pkg.id, 'f')).toMatchObject({ success: false });
+    pkg.loan.loanOfficerId = user.id;
+    p.leadershipSubmitterId = 'different';
+    expect(await getSubmissionPilot(child.id)).toMatchObject({ success: false });
+    p.leadershipSubmitterId = user.id;
+    const tx = { ...mocks.db, $queryRaw: vi.fn().mockResolvedValue([{ id: waiting.loanId }]), user: { findUnique: vi.fn().mockResolvedValue({ ...user, loanOfficerPilotEnabled: false }) } };
+    mocks.db.$transaction.mockImplementation(async fn => fn(tx));
+    const submit = { taskId: pkg.id, action: 'SUBMIT' as const, revision: 0 };
+    expect(await changeSubmissionPilot(submit)).toMatchObject({ success: false });
+    expect(mocks.db.task.updateMany).not.toHaveBeenCalled();
+    tx.user.findUnique.mockResolvedValue(user);
+    tx.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    expect(await changeSubmissionPilot(submit)).toMatchObject({ success: false });
+    expect(mocks.db.task.updateMany).not.toHaveBeenCalled();
+    mocks.db.task.findFirst.mockResolvedValueOnce(waiting).mockResolvedValueOnce(child);
+    expect(await changeSubmissionPilot(submit)).toMatchObject({ success: true });
+    expect(mocks.db.task.findFirst).toHaveBeenCalledWith({ where: expect.objectContaining({ parentTaskId: waiting.id, assignedUserId: user.id, loanId: waiting.loanId }) });
+    expect(mocks.db.notificationOutbox.create).toHaveBeenCalledTimes(1);
+  });
   it.each([['PROCESSOR_JR', true], ['MANAGER', false]] as const)('denies a package read and write as %s with preference %s', async (role, enabled) => {
     const p = setupTest(role, enabled); p.items[0].files.push({ id: 'f', path: 'demo', name: 'test.pdf', size: 1, type: 'application/pdf', uploadedAt: '' });
     expect(await downloadPilotFile('task', 'f')).toMatchObject({ success: false });

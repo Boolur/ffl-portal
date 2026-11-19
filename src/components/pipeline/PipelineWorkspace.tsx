@@ -151,7 +151,9 @@ function PipelineWorkspaceContent({
               </div>
               <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-950">Processing Pipeline</h1>
               <p className="mt-1 max-w-2xl text-sm font-medium text-slate-500">
-                {role === UserRole.LOAN_OFFICER
+                {pilotMode && role === UserRole.LOAN_OFFICER
+                  ? 'View Arive updates for your assigned loans.'
+                  : role === UserRole.LOAN_OFFICER
                   ? 'Manage your Self Processed and Contract/3rd Party loans. In-House loans remain read-only.'
                   : role === UserRole.LOA
                   ? 'Review company-wide processing milestones, restructures, and fundings in a read-only workspace.'
@@ -162,13 +164,13 @@ function PipelineWorkspaceContent({
             </div>
             <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
               <CheckCircle2 className="h-5 w-5" />
-              {pilotMode ? 'Leadership Pilot · Read only' : initialProcessing.canEdit
+              {pilotMode ? 'Pilot · Read only' : initialProcessing.canEdit
                 ? role === UserRole.LOAN_OFFICER
                   ? 'Audited edits on eligible loans'
                   : 'Audited autosave enabled'
                 : 'Live processing visibility'}
             </div>
-          {pilotMode && <Link className="app-btn-secondary" href="/pilot/submission">Act as Loan Officer</Link>}
+          {pilotMode && role !== UserRole.LOAN_OFFICER && <Link className="app-btn-secondary" href="/pilot/submission">Act as Loan Officer</Link>}
           </header>
           <ProcessingPipelineGrid
             cacheScope={cacheScope}

@@ -198,7 +198,19 @@ export async function readPilotProjections(ids: string[], detail: boolean | 'not
     FROM unnest(ARRAY[${Prisma.join(ids)}]::text[]) AS requested(id)
     LEFT JOIN "PilotAriveProjection" ON "pipelineId"=requested.id LEFT JOIN capacity ON TRUE
     LEFT JOIN "AriveIntegrationConfig" connection ON connection."id"='company'`;
-  return new Map(rows.map((row) => [row.pipelineId, row]));
+  return new Map(rows.map((row) => [row.pipelineId, {
+    ...row, enrollmentIssue: pilotReviewMessage(row.enrollmentIssue), lastError: pilotReviewMessage(row.lastError),
+  }]));
+}
+
+// Older entries used one message for a rejected search, a verified detail
+// read, and even a numeric probe after no exact search result was found.
+// Until a fresh read distinguishes these, show the same uncertainty in the
+// file and in aggregate coverage.
+export function pilotReviewMessage(issue: string | null) {
+  return issue === 'Previous branch check returned HTTP 403. Arive denied access to this file.'
+    ? 'The previous branch check could not verify this file. Confirm its Arive loan number and branch visibility.'
+    : issue;
 }
 
 export function summarizePilotCoverage(files: { id: string; sheet: string; loan: AriveLoanIdentity }[], projections: Map<string, Projection>, now: Date) {
@@ -302,6 +314,7 @@ export async function pilotReadIndex(
           ...pilotIdentitySelect,
           loanOfficerId: true,
           secondaryLoanOfficerId: true,
+          visibilitySubmitterUserId: true,
           amount: true,
           program: true,
         },

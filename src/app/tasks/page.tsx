@@ -156,6 +156,7 @@ type TaskRow = {
   loanOfficerApprovedAt: Date | null;
   submissionData: Prisma.JsonValue | null;
   loan: {
+    loanOfficerId?: string | null;
     loanNumber: string;
     borrowerName: string;
     stage: string;
@@ -308,6 +309,7 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
     include: {
       loan: {
         select: {
+          loanOfficerId: true,
           loanNumber: true,
           borrowerName: true,
           stage: true, // Include stage

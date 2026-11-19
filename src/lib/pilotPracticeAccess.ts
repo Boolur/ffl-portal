@@ -5,20 +5,42 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { canLoanOfficerViewLoan } from './loanOfficerVisibility';
 import { buildProcessingPipelineScopeWhere, getProcessingPipelineAccess } from './processingPipeline';
-import { isPilotLeadershipRole } from './pilotLeadership';
+import { canUseOfficerSubmissionPilot, isPilotLeadershipRole } from './pilotLeadership';
 
 const adminRoles: UserRole[] = [UserRole.ADMIN_I, UserRole.ADMIN_II, UserRole.ADMIN_III];
 export const pilotViewAvailable = () => process.env.PILOT_VIEW_ENABLED === 'true';
 export const pilotPracticeAvailable = () => pilotViewAvailable() && process.env.PILOT_PRACTICE_ENABLED === 'true';
-export async function getPilotActor(requirePractice = true) {
+async function getPilotIdentity() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) throw new Error('Sign in with an account that can access this practice workspace.');
-  const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { id: true, active: true, name: true, role: true, roles: true, processingAssignmentGroups: true, pilotViewEnabled: true } });
+  const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { id: true, active: true, name: true, role: true, roles: true, processingAssignmentGroups: true, pilotViewEnabled: true, loanOfficerPilotEnabled: true, loQcSubmissionEnabled: true } });
   const role = (session.user.activeRole || session.user.role) as UserRole;
   if (!user?.active || (role !== user.role && !user.roles.includes(role))) throw new Error('Your account or selected role is unavailable.');
-  if (!isPilotLeadershipRole(role)) throw new Error('Pilot view requires an active leadership role.');
-  if (requirePractice && (!pilotPracticeAvailable() || !user.pilotViewEnabled)) throw new Error('Practice workspace requires Pilot mode.');
-  return { ...user, role, admin: adminRoles.includes(role) };
+  return { ...user, role, assignedRoles: [user.role, ...user.roles], admin: adminRoles.includes(role) };
+}
+
+export async function getPilotPreferenceActor() {
+  const actor = await getPilotIdentity();
+  if (!isPilotLeadershipRole(actor.role) && !canUseOfficerSubmissionPilot(actor.id, actor.role, actor.assignedRoles)) {
+    throw new Error('Pilot mode is unavailable in this role.');
+  }
+  return actor;
+}
+
+/** Only authorizes the submission form. Desk, reviewer and collector permissions are separate. */
+export async function getSubmissionPilotActor() {
+  const actor = await getPilotPreferenceActor();
+  const enabled = actor.role === 'LOAN_OFFICER'
+    ? actor.loanOfficerPilotEnabled && actor.loQcSubmissionEnabled : actor.pilotViewEnabled;
+  if (!pilotViewAvailable() || !enabled) throw new Error('Open Submit for Processing with Pilot turned on in your current role.');
+  return actor;
+}
+
+export async function getPilotActor(requirePractice = true) {
+  const actor = await getPilotIdentity();
+  if (!isPilotLeadershipRole(actor.role)) throw new Error('Pilot view requires an active leadership role.');
+  if (requirePractice && (!pilotPracticeAvailable() || !actor.pilotViewEnabled)) throw new Error('Practice workspace requires Pilot mode.');
+  return actor;
 }
 export type PilotPracticeActor = Awaited<ReturnType<typeof getPilotActor>>;
 export const practiceLoanSelect = { id: true, loanNumber: true, borrowerName: true, loanOfficerId: true, secondaryLoanOfficerId: true, visibilitySubmitterUserId: true, updatedAt: true, amount: true, program: true, propertyAddress: true, borrowerEmail: true, borrowerPhone: true } satisfies Prisma.LoanSelect;

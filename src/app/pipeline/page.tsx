@@ -12,7 +12,7 @@ import { getProcessingPipelineWorkspace } from '@/app/actions/pipelineWorkspaceA
 import { prisma } from '@/lib/prisma';
 import { isAdmin, isAdminIII } from '@/lib/adminTiers';
 import { isPilotLeadershipRole } from '@/lib/pilotLeadership';
-import { canViewGeneralizedArive } from '@/lib/ariveSyncState';
+import { canReadPilotPipeline } from '@/lib/ariveSyncState';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,10 +25,10 @@ export default async function Pipeline() {
   if (!canAccess) redirect('/');
 
   const role = (session.user.activeRole || session.user.role) as UserRole;
-  const account = isPilotLeadershipRole(role) ? await prisma.user.findUnique({
-    where:{id:session.user.id},select:{id:true,active:true,role:true,roles:true,pilotViewEnabled:true},
+  const account = (isPilotLeadershipRole(role) || role === UserRole.LOAN_OFFICER) ? await prisma.user.findUnique({
+    where:{id:session.user.id},select:{id:true,active:true,role:true,roles:true,pilotViewEnabled:true,loanOfficerPilotEnabled:true},
   }) : null;
-  const pilotMode = Boolean(account && canViewGeneralizedArive(account,role));
+  const pilotMode = Boolean(account && canReadPilotPipeline(account,role));
   const isProcessingRole =
     role === UserRole.PROCESSOR_JR ||
     role === UserRole.PROCESSOR_SR ||

@@ -587,6 +587,7 @@ model User {
   roles                         UserRole[] @default([])
   loQcTwoRowPilot               Boolean    @default(false)
   pilotViewEnabled             Boolean    @default(false)
+  loanOfficerPilotEnabled      Boolean    @default(false)
   loDisclosureSubmissionEnabled Boolean    @default(false)
   loQcSubmissionEnabled         Boolean    @default(true)
   processingAssignmentGroups    String[]   @default([])

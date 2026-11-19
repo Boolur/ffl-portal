@@ -17,19 +17,21 @@ import { ariveConfigured, ariveClassifications, ariveSession, findAriveLoan, rea
 import { getSupabaseAdmin, getTaskAttachmentsBucket } from '@/lib/supabaseAdmin';
 import { isSubmissionPilotEnabled, readPilotPackage, reconcileReturnedPilotReview, pilotApprovalError, pilotSubmissionError, validatePilotFile, SUBMISSION_PILOT_LO_ID, type PilotPackage } from '@/lib/submissionPilot';
 import { selectApprovedSubmissionDocuments, submissionDocumentSelectionSource, type SubmissionDocumentDownloadManifest } from '../../lib/submissionDocumentDownload';
+import { officerDocumentAccess, ownsOfficerSubmissionTarget, ownsOfficerTestRequest, type OfficerSubmissionTarget } from '../../lib/officerPilotSubmission';
 
-async function actor(allowWhilePaused = false) {
+async function actor(allowWhilePaused = false, forTaskDocuments = false) {
   if (!allowWhilePaused && !isSubmissionPilotEnabled()) throw new Error('The submission pilot is paused. Use the normal Tasks and Submit to Processing workflow.');
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) throw new Error('Sign in to use the pilot.');
-  const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { id: true, name: true, email: true, active: true, role: true, roles: true, pilotViewEnabled: true } });
+  const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { id: true, name: true, email: true, active: true, role: true, roles: true, pilotViewEnabled: true, loanOfficerPilotEnabled: true, loQcSubmissionEnabled: true } });
   if (!user?.active) throw new Error('Account unavailable.');
   const role = (session.user.activeRole || session.user.role) as UserRole;
   if (role !== user.role && !user.roles.includes(role)) throw new Error('Role not available.');
   const reviewer = role === UserRole.PROCESSOR_JR || role === UserRole.PROCESSING_MANAGER || role === UserRole.MANAGER || isAdmin(role);
   const owner = user.id === SUBMISSION_PILOT_LO_ID && role === UserRole.LOAN_OFFICER;
-  if (!owner && !reviewer) throw new Error('This pilot is limited to Matt Mahjoub and the processing review team.');
-  return { ...user, role, owner, reviewer, leadershipPilot: canViewGeneralizedArive(user, role) };
+  const officerDocuments = forTaskDocuments && officerDocumentAccess(user, role);
+  if (!owner && !reviewer && !officerDocuments) throw new Error('This submission is unavailable in your current role.');
+  return { ...user, role, owner, reviewer, officerDocuments, leadershipPilot: canViewGeneralizedArive(user, role) };
 }
 type Actor = Awaited<ReturnType<typeof actor>>;
 function checkReviewer(a: Actor, p: PilotPackage) {
@@ -42,19 +44,27 @@ async function taskAccess(id: string, actor: Actor, db: Prisma.TransactionClient
   const task = await db.task.findUnique({ where: { id }, include: { loan: { select: { loanOfficerId: true, borrowerName: true, loanNumber: true } } } });
   const p = readPilotPackage(task?.submissionData);
   if (!task || task.kind !== null || task.title !== 'Processing submission pilot — documents' || !p) throw new Error('Pilot package not found.');
-  if (p.leadershipTest ? !actor.leadershipPilot : task.loan.loanOfficerId !== SUBMISSION_PILOT_LO_ID) throw new Error('Pilot package not found.');
+  if (p.leadershipTest ? !(actor.leadershipPilot || actor.officerDocuments) : ((!actor.owner && !actor.reviewer) || task.loan.loanOfficerId !== SUBMISSION_PILOT_LO_ID)) throw new Error('Pilot package not found.');
   let request = linkedRequest ?? await db.task.findFirst({ where: { loanId: task.loanId, kind: 'SUBMIT_PROCESSING', submissionData: { path: ['processingDocumentTaskId'], equals: id } }, select: requestSelect });
   let a = actor;
   if (p.leadershipTest) {
     if (db !== prisma && request) {
       await db.$queryRaw`SELECT id FROM "Task" WHERE id = ${request.id} FOR UPDATE`;
       request = await db.task.findUnique({ where: { id: request.id }, select: requestSelect });
-      const fresh = await db.user.findUnique({ where: { id: actor.id }, select: { id: true, active: true, role: true, roles: true, pilotViewEnabled: true } });
-      if (!fresh || !canViewGeneralizedArive(fresh, actor.role)) throw new Error('Your Pilot session changed. Open the task again.');
+      if (actor.officerDocuments) {
+        const owners = await db.$queryRaw<{ id: string }[]>`SELECT l.id FROM "Loan" l JOIN "User" u ON u.id=l."loanOfficerId"
+          WHERE l.id=${task.loanId} AND u.id=${actor.id} FOR SHARE OF l,u`;
+        if (!owners.length) throw new Error('This test submission is unavailable in your current role.');
+      }
+      const fresh = await db.user.findUnique({ where: { id: actor.id }, select: { id: true, active: true, role: true, roles: true, pilotViewEnabled: true, loanOfficerPilotEnabled: true, loQcSubmissionEnabled: true } });
+      if (!fresh || !(actor.officerDocuments ? officerDocumentAccess(fresh, actor.role) : canViewGeneralizedArive(fresh, actor.role))) throw new Error('Your Pilot session changed. Open the task again.');
     }
     const data = request?.submissionData as Prisma.JsonObject | null;
-    if (!request || request.loanId !== task.loanId || !p.leadershipSubmitterId || data?.leadershipPilotTest !== true || data.processingDocumentTaskId !== id || !canAccessLeadershipRequest(actor, request)) throw new Error('Labeled test request not found.');
-    const owner = persona === 'LO';
+    if (!request || request.loanId !== task.loanId || !p.leadershipSubmitterId || data?.leadershipPilotTest !== true || data.processingDocumentTaskId !== id) throw new Error('Labeled test request not found.');
+    if (actor.officerDocuments) {
+      if (persona === 'JR' || p.leadershipSubmitterId !== actor.id || !ownsOfficerTestRequest(actor.id, task.loan.loanOfficerId, data)) throw new Error('This test submission is unavailable in your current role.');
+    } else if (!canAccessLeadershipRequest(actor, request)) throw new Error('Labeled test request not found.');
+    const owner = actor.officerDocuments || persona === 'LO';
     a = { ...actor, owner, reviewer: !owner };
   }
   reconcileReturnedPilotReview(p, request);
@@ -78,7 +88,8 @@ async function mutate(id: string, revision: number, viewer: Actor, edit: (p: Pil
     if (a.owner && previousState === 'CHANGES' && p.state === 'REVIEW' && request) {
       const parent = await tx.task.findUnique({ where: { id: request.id } });
       if (!parent || parent.workflowState !== 'WAITING_ON_LO') throw new Error('This Processing request is no longer waiting for corrections. Refresh and try again.');
-      const child = await tx.task.findFirst({ where: { parentTaskId: parent.id, kind: 'LO_NEEDS_INFO', status: { not: 'COMPLETED' } } });
+      const child = await tx.task.findFirst({ where: { parentTaskId: parent.id, kind: 'LO_NEEDS_INFO', status: { not: 'COMPLETED' },
+        ...(a.officerDocuments && { assignedUserId: a.id, assignedRole: UserRole.LOAN_OFFICER, loanId: task.loanId }) } });
       if (!child) throw new Error('The LO response task was not found. Refresh and try again.');
       const response = 'Corrected submission documents returned to Processing for review.';
       const prior = (parent.submissionData || {}) as Prisma.JsonObject;
@@ -130,13 +141,14 @@ export async function getSubmissionPilot(requestTaskId?: string, persona?: Perso
   return result(async () => {
     if (requestTaskId) {
       const [a, request, configured] = await Promise.all([
-        actor(),
+        actor(false, true),
         prisma.task.findUnique({ where: { id: requestTaskId }, select: { ...requestSelect, kind: true, parentTaskId: true } }),
         ariveConfigured(),
       ]);
       const documentId = (request?.submissionData as { processingDocumentTaskId?: string } | null)?.processingDocumentTaskId;
       if (!request || !['SUBMIT_PROCESSING', 'LO_NEEDS_INFO'].includes(request.kind || '') || !documentId) throw new Error('Submission documents not found.');
-      const { task, p, request: parent, a: viewer } = await taskAccess(documentId, a, prisma, request.kind === 'SUBMIT_PROCESSING' ? request : undefined, persona ?? (request.kind === 'LO_NEEDS_INFO' ? 'LO' : 'JR'));
+      if (a.officerDocuments && request.kind === 'LO_NEEDS_INFO' && request.assignedUserId !== a.id) throw new Error('Submission documents not found.');
+      const { task, p, request: parent, a: viewer } = await taskAccess(documentId, a, prisma, request.kind === 'SUBMIT_PROCESSING' ? request : undefined, persona ?? (a.officerDocuments || request.kind === 'LO_NEEDS_INFO' ? 'LO' : 'JR'));
       if (p.leadershipTest && request.kind === 'LO_NEEDS_INFO' && request.parentTaskId !== parent?.id) throw new Error('Submission documents do not match this task.');
       if (task.loanId !== request.loanId) throw new Error('Submission documents do not match this loan.');
       return { owner: viewer.owner, canConfigureArive: false, ariveConfigured: configured, userId: a.id, loans: [], packages: [{ id: task.id, loanId: task.loanId, borrower: task.loan.borrowerName, loanNumber: task.loan.loanNumber, package: p }] };
@@ -158,7 +170,7 @@ export async function createSubmissionPilot(loanId: string) {
 }
 export async function changeSubmissionPilot(input: { taskId: string; revision: number; action: 'WAIVER' | 'ADD' | 'REQUEST_DOCUMENT' | 'REMOVE' | 'SUBMIT' | 'CLAIM' | 'REVIEW' | 'RETURN' | 'APPROVE' | 'CANCEL_UPLOAD'; itemId?: string; fileId?: string; text?: string; approved?: boolean }) {
   return result(async () => {
-    const viewer = await actor();
+    const viewer = await actor(false, true);
     const loAction = ['WAIVER', 'ADD', 'REMOVE', 'SUBMIT', 'CANCEL_UPLOAD'].includes(input.action);
     await mutate(input.taskId, input.revision, viewer, (p, a) => {
       const item = p.items.find(i => i.id === input.itemId);
@@ -218,7 +230,7 @@ export async function changeSubmissionPilot(input: { taskId: string; revision: n
 }
 export async function preparePilotUpload(input: { taskId: string; revision: number; itemId: string; name: string; size: number; type: string }) {
   return result(async () => {
-    const viewer = await actor(); validatePilotFile(input.name, input.size, input.type);
+    const viewer = await actor(false, true); validatePilotFile(input.name, input.size, input.type);
     const path = `submission-pilot/${input.taskId}/${randomUUID()}.${input.name.split('.').pop()!.toLowerCase()}`;
     await mutate(input.taskId, input.revision, viewer, (p, a) => {
       if (!a.owner || !['DRAFT', 'CHANGES'].includes(p.state)) throw new Error('Uploads are available to the LO in draft or returned packages.');
@@ -233,10 +245,14 @@ export async function preparePilotUpload(input: { taskId: string; revision: numb
   });
 }
 // The modal stages files before creating the normal Processing request.
-export async function prepareProcessingSubmissionUpload(input: { name: string; size: number; type: string }) {
+export async function prepareProcessingSubmissionUpload(input: { name: string; size: number; type: string }, target?: OfficerSubmissionTarget) {
   return result(async () => {
-    const a = await actor();
-    if (!a.leadershipPilot) throw new Error('Turn on Pilot mode with an active leadership role to upload test documents.');
+    if (!isSubmissionPilotEnabled()) throw new Error('The submission pilot is paused.');
+    const { getSubmissionPilotActor } = await import('@/lib/pilotPracticeAccess');
+    const a = await getSubmissionPilotActor();
+    if (a.role === UserRole.LOAN_OFFICER && !await ownsOfficerSubmissionTarget(prisma, a.id, target)) {
+      throw new Error('Choose a file for which you are the primary loan officer.');
+    }
     validatePilotFile(input.name, input.size, input.type);
     const path = `processing-submission/${a.id}/${randomUUID()}.${input.name.split('.').pop()!.toLowerCase()}`;
     const { data, error } = await getSupabaseAdmin().storage.from(getTaskAttachmentsBucket()).createSignedUploadUrl(path);
@@ -246,7 +262,7 @@ export async function prepareProcessingSubmissionUpload(input: { name: string; s
 }
 export async function finishPilotUpload(taskId: string, itemId: string) {
   return result(async () => {
-    const viewer = await actor(); const { p, a } = await taskAccess(taskId, viewer, prisma, undefined, 'LO');
+    const viewer = await actor(false, true); const { p, a } = await taskAccess(taskId, viewer, prisma, undefined, 'LO');
     if (!a.owner) throw new Error('Only the LO can finalize uploads.');
     const pending = p.items.find(i => i.id === itemId)?.pending;
     if (!pending) throw new Error('No pending upload.');
@@ -264,7 +280,7 @@ export async function finishPilotUpload(taskId: string, itemId: string) {
 }
 export async function getPilotFileAccess(taskId: string, fileId: string, disposition: 'attachment' | 'inline' = 'inline') {
   return result(async () => {
-    const a = await actor(true); const { p } = await taskAccess(taskId, a);
+    const a = await actor(true, true); const { p } = await taskAccess(taskId, a);
     const file = p.items.flatMap(i => i.files).find(f => f.id === fileId);
     if (!file) throw new Error('Document not found.');
     const { data, error } = await getSupabaseAdmin().storage.from(getTaskAttachmentsBucket()).createSignedUrl(file.path, 300, disposition === 'inline' ? undefined : { download: file.name });
@@ -279,7 +295,7 @@ export async function downloadPilotFile(taskId: string, fileId: string, disposit
 }
 
 async function approvedDocumentSelection(taskId: string) {
-  const a = await actor(true);
+  const a = await actor(true, true);
   const { task, p } = await taskAccess(taskId, a);
   const submitterId = p.leadershipTest ? p.leadershipSubmitterId! : task.loan.loanOfficerId;
   const selection = selectApprovedSubmissionDocuments(p, task.id, submitterId, task.loan.loanNumber);

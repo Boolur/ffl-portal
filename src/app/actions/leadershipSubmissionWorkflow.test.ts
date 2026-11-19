@@ -18,7 +18,7 @@ vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
 vi.mock('@/lib/prisma', () => ({ prisma: m.db }));
 vi.mock('@/lib/leadershipTestSubmission', () => ({
-  requireLeadershipPilot: m.requirePilot, verifyLeadershipSubmissionLoan: m.verify, leadershipTestViewer: m.viewer,
+  getSubmissionPilotActor: m.requirePilot, verifyLeadershipSubmissionLoan: m.verify, leadershipTestViewer: m.viewer,
   submissionVerificationMessage: (error: Error) => error.message,
   isLeadershipTestRequest: (data: { leadershipPilotTest?: boolean } | null) => data?.leadershipPilotTest === true,
   sameLeadershipTestProperty: (a: string, b: string) => !!a && a === b,
@@ -45,7 +45,7 @@ vi.mock('@/lib/leadPipelineSync', () => ({ leadStatusForTaskKind: () => null }))
 vi.mock('@/lib/pipelineSubmissionShortcuts', () => ({}));
 vi.mock('@/lib/processingManagerNotifications', () => ({}));
 
-import { checkLeadershipSubmissionStage, createLeadershipTestSubmission, createSubmissionTask, requestInfoFromLoanOfficer, resolveLeadershipMismoOfficer, startQcRequest } from './taskActions';
+import { checkLeadershipSubmissionStage, createLeadershipTestSubmission, createSubmissionTask, requestInfoFromLoanOfficer, resolveLeadershipMismoOfficer, respondToDisclosureRequest, startQcRequest } from './taskActions';
 
 const leader = { id: 'manager', name: 'Example Leader', role: 'MANAGER', roles: ['MANAGER'], active: true, pilotViewEnabled: true };
 const officer = { id: 'lo', name: 'Example Originator', email: 'lo@example.test', role: 'LOAN_OFFICER', roles: ['LOAN_OFFICER'] };
@@ -80,6 +80,62 @@ beforeEach(() => {
 });
 
 describe('shared leadership submission workflow', () => {
+  it('keeps the opted-in officer’s own corrections in the document form when a stale standard response is sent', async () => {
+    vi.stubEnv('PILOT_VIEW_ENABLED', 'true');
+    try {
+      m.session.mockResolvedValue({ user: { id: officer.id, role: 'MANAGER', activeRole: 'LOAN_OFFICER' } });
+      m.db.user.findUnique.mockResolvedValue({ ...officer, active: true, roles: ['LOAN_OFFICER', 'MANAGER'],
+        loanOfficerPilotEnabled: true, loQcSubmissionEnabled: true });
+      m.db.task.findUnique.mockResolvedValueOnce({ id: 'correction', kind: 'LO_NEEDS_INFO', parentTaskId: 'request',
+        status: 'PENDING', loan: { loanOfficerId: officer.id }, assignedUserId: officer.id })
+        .mockResolvedValueOnce({ ...request, submissionData: { ...request.submissionData, leadershipTestSubmitterId: officer.id } });
+      expect(await respondToDisclosureRequest('correction', 'Done')).toMatchObject({ success: false, error: expect.stringContaining('submission checklist') });
+      expect(m.db.$transaction).not.toHaveBeenCalled();
+    } finally { vi.unstubAllEnvs(); }
+  });
+  it('checks and submits the signed-in pilot officer’s own file with an active secondary officer', async () => {
+    const actor = { ...officer, active: true, roles: ['MANAGER', 'LOAN_OFFICER'], loanOfficerPilotEnabled: true, pilotViewEnabled: false, loQcSubmissionEnabled: true };
+    const secondary = { ...officer, id: 'secondary', email: 'secondary@example.test' };
+    m.session.mockResolvedValue({ user: actor }); m.requirePilot.mockResolvedValue(actor);
+    m.db.user.findUnique.mockImplementation(async q => q.where.id === secondary.id ? secondary : actor);
+    m.db.user.findMany.mockResolvedValueOnce([actor]).mockResolvedValueOnce([actor, secondary]);
+    m.tx.user.findUnique.mockResolvedValue(actor);
+    expect(await checkLeadershipSubmissionStage(stageInput)).toMatchObject({ success: true, eligible: true });
+    expect(m.verify).toHaveBeenCalledWith(expect.objectContaining({ loanOfficer: actor }), expect.any(String), undefined, true);
+    expect(await createLeadershipTestSubmission({ ...payload, secondaryLoanOfficerId: secondary.id })).toMatchObject({ success: true, taskId: 'request' });
+    expect(m.tx.task.create.mock.calls[1][0].data.submissionData).toMatchObject({ leadershipPilotTest: true, leadershipTestSubmitterId: actor.id });
+  });
+
+  it('rejects an impersonated primary, a file with a different owner, and a disabled LO Pilot', async () => {
+    const actor = { ...officer, active: true, roles: ['LOAN_OFFICER', 'ADMIN_I'], loanOfficerPilotEnabled: true, loQcSubmissionEnabled: true };
+    m.session.mockResolvedValue({ user: actor }); m.requirePilot.mockResolvedValue(actor);
+    m.db.user.findUnique.mockResolvedValue(actor);
+    expect(await checkLeadershipSubmissionStage({ ...stageInput, loanOfficerId: 'another' })).toMatchObject({ success: false });
+    m.db.user.findUnique.mockImplementation(async q => q.where.id === actor.id ? actor : { ...officer, id: 'another' });
+    expect(await createLeadershipTestSubmission({ ...payload, loanOfficerId: 'another' })).toMatchObject({ success: false });
+    expect(m.docs).not.toHaveBeenCalled(); expect(m.db.$transaction).not.toHaveBeenCalled();
+    m.db.loan.findFirst.mockResolvedValueOnce({ id: 'another-owners-file' });
+    expect(await checkLeadershipSubmissionStage(stageInput)).toMatchObject({ success: false });
+    expect(m.verify).not.toHaveBeenCalled();
+    m.tx.user.findUnique.mockResolvedValue({ ...actor, loanOfficerPilotEnabled: false });
+    expect(await createLeadershipTestSubmission(payload)).toMatchObject({ success: false });
+    expect(m.tx.task.create).not.toHaveBeenCalled();
+    m.tx.user.findUnique.mockResolvedValue({ ...actor, loQcSubmissionEnabled: false });
+    expect(await createLeadershipTestSubmission(payload)).toMatchObject({ success: false });
+    expect(m.tx.task.create).not.toHaveBeenCalled();
+    m.requirePilot.mockRejectedValueOnce(new Error('Pilot is off'));
+    expect(await checkLeadershipSubmissionStage(stageInput)).toMatchObject({ success: false });
+  });
+
+  it('only offers the acting LO’s own portal identity as the imported primary officer', async () => {
+    m.requirePilot.mockResolvedValue(officer);
+    m.db.user.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: officer.id }]);
+    expect(await resolveLeadershipMismoOfficer('another@example.test')).toBeNull();
+    expect(await resolveLeadershipMismoOfficer(officer.email)).toBe(officer.id);
+    expect(m.db.user.findMany).toHaveBeenCalledWith({ where: { AND: [
+      { id: officer.id, active: true }, { email: { equals: officer.email, mode: 'insensitive' } },
+    ] }, select: { id: true }, take: 2 });
+  });
   it('returns a read-only stage result and verifies it again if the file moves back to intake before submission', async () => {
     m.verify.mockResolvedValueOnce({ guid: 'verified-guid', stage: preapproved }).mockResolvedValueOnce({ guid: 'verified-guid', stage: intake });
     expect(await checkLeadershipSubmissionStage(stageInput)).toEqual({ success: true, eligible: true, stageLabel: 'Preapproved', checkedAt: preapproved.checkedAt });
@@ -131,7 +187,7 @@ describe('shared leadership submission workflow', () => {
     expect(await createLeadershipTestSubmission({ ...payload, leadershipExportGuid: guid })).toMatchObject({
       success: false, error: expect.stringContaining(message),
     });
-    expect(m.verify).toHaveBeenCalledWith(expect.objectContaining({ loanNumber: payload.arriveLoanNumber }), expect.any(String), guid);
+    expect(m.verify).toHaveBeenCalledWith(expect.objectContaining({ loanNumber: payload.arriveLoanNumber }), expect.any(String), guid, false);
     expect(m.docs).not.toHaveBeenCalled();
     expect(m.db.$transaction).not.toHaveBeenCalled();
   });

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ArivePipelineSync, Prisma, ProcessingPipelineLoan } from '@prisma/client';
 import { ARIVE_SYNC_PILOT } from './ariveSyncTypes';
-import { ariveSyncSameValue, ariveSyncView, canViewGeneralizedArive, guardArivePipelineEdit, isAriveManagedState, isAriveVisibleForLoan, preserveAriveManagedFields, savedAriveTrackers } from './ariveSyncState';
+import { ariveSyncSameValue, ariveSyncView, canReadPilotPipeline, canViewGeneralizedArive, guardArivePipelineEdit, isAriveManagedState, isAriveVisibleForLoan, preserveAriveManagedFields, savedAriveTrackers } from './ariveSyncState';
 
 beforeEach(() => {
   vi.stubEnv('ARIVE_ROLLOUT_ENABLED', 'true'); vi.stubEnv('ARIVE_CANONICAL_APPLY_ENABLED', 'true'); vi.stubEnv('VERCEL_ENV', 'production');
@@ -192,6 +192,16 @@ describe('verified generalized field ownership', () => {
       expect(canViewGeneralizedArive({ ...user, id: ARIVE_SYNC_PILOT.ownerId, roles: [role] }, role)).toBe(false);
     }
     vi.stubEnv('PILOT_VIEW_ENABLED', 'false'); expect(canViewGeneralizedArive(user, 'ADMIN_III')).toBe(false);
+  });
+  it('shows the scoped LO projection only with an eligible account and its own opt-in', () => {
+    const officer = { id: 'dual-role', active: true, role: 'ADMIN_III', roles: ['LOAN_OFFICER'], pilotViewEnabled: false, loanOfficerPilotEnabled: true };
+    expect(canReadPilotPipeline(officer, 'LOAN_OFFICER')).toBe(true);
+    expect(canReadPilotPipeline(officer, 'ADMIN_III')).toBe(false);
+    expect(canViewGeneralizedArive(officer, 'LOAN_OFFICER')).toBe(false);
+    expect(canReadPilotPipeline({ ...officer, role: 'LOAN_OFFICER' }, 'LOAN_OFFICER')).toBe(false);
+    expect(canReadPilotPipeline({ ...officer, loanOfficerPilotEnabled: false, pilotViewEnabled: true }, 'LOAN_OFFICER')).toBe(false);
+    expect(canReadPilotPipeline({ ...officer, active: false }, 'LOAN_OFFICER')).toBe(false);
+    expect(canReadPilotPipeline({ ...officer, roles: [] }, 'LOAN_OFFICER')).toBe(false);
   });
   it('hides the legacy demo snapshot in Standard and allows standard edits while canonical updates are off', async () => {
     const h = setup();

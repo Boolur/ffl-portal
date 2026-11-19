@@ -1,5 +1,6 @@
 import 'server-only';
-import { getPilotActor, pilotViewAvailable } from './pilotPracticeAccess';
+import { getPilotActor, getSubmissionPilotActor, pilotViewAvailable } from './pilotPracticeAccess';
+import { ownsOfficerTestRequest } from './officerPilotSubmission';
 import { AriveError, ariveReadOnlySession } from './ariveClient';
 import { verifyAriveRolloutIdentity, type AriveRolloutLoanIdentity } from './ariveRollout';
 import { Prisma } from '@prisma/client';
@@ -9,6 +10,7 @@ import { projectAriveApplicationSnapshot } from './ariveApplicationSnapshot';
 import { normalizeProcessingProperty } from './processingBorrowerDetails';
 import { isAriveExportGuid } from './leadershipMismoExport';
 import { ARIVE_LOAN_STAGE_OPTIONS } from './arivePipelineMapping';
+export { getSubmissionPilotActor } from './pilotPracticeAccess';
 
 export async function requireLeadershipPilot() {
   const actor = await getPilotActor(false);
@@ -26,14 +28,19 @@ export async function leadershipTestViewer(data: unknown, role: unknown) {
   catch { return false; }
 }
 
-export async function projectSharedTestTasks<T extends { submissionData: Prisma.JsonValue | null; parentTask?: { submissionData: Prisma.JsonValue | null } | null }>(
+export async function projectSharedTestTasks<T extends { kind?: string | null; loan?: { loanOfficerId?: string | null }; assignedUser?: { id?: string } | null; submissionData: Prisma.JsonValue | null; parentTask?: { submissionData: Prisma.JsonValue | null } | null }>(
   tasks: T[], role: unknown,
 ): Promise<T[]> {
   const anyTest = tasks.find(task => isLeadershipTestRequest(task.submissionData) || isLeadershipTestRequest(task.parentTask?.submissionData));
   if (!anyTest) return tasks;
-  const actor = isPilotLeadershipRole(role) ? await requireLeadershipPilot().catch(() => null) : null;
-  if (actor && actor.role === role && role !== 'PROCESSING_MANAGER') return tasks;
+  const actor = role === 'LOAN_OFFICER' ? await getSubmissionPilotActor().catch(() => null)
+    : isPilotLeadershipRole(role) ? await requireLeadershipPilot().catch(() => null) : null;
+  if (actor && actor.role === role && isPilotLeadershipRole(role) && role !== 'PROCESSING_MANAGER') return tasks;
   return tasks.map(task => {
+    if (actor?.role === 'LOAN_OFFICER' && role === actor.role && ownsOfficerTestRequest(actor.id, task.loan?.loanOfficerId, task.submissionData)) {
+      if (task.kind === 'SUBMIT_PROCESSING' || (task.kind === 'LO_NEEDS_INFO' && task.assignedUser?.id === actor.id
+        && ownsOfficerTestRequest(actor.id, task.loan?.loanOfficerId, task.parentTask?.submissionData))) return task;
+    }
     if (actor && actor.role === role && canAccessLeadershipRequest(actor, task.parentTask ?? task)) return task;
     return { ...task, submissionData: standardSharedTestData(task.submissionData),
       ...(task.parentTask ? { parentTask: { ...task.parentTask, submissionData: standardSharedTestData(task.parentTask.submissionData) } } : {}) };
@@ -53,7 +60,9 @@ export function submissionVerificationMessage(error: unknown) {
     : 'BISU could not verify the current Arive status. Check again before continuing.';
 }
 
-export async function verifyLeadershipSubmissionLoan(loan: AriveRolloutLoanIdentity, expectedAddress: string, exportGuid?: string) {
+export async function verifyLeadershipSubmissionLoan(
+  loan: AriveRolloutLoanIdentity, expectedAddress: string, exportGuid?: string, requirePrimaryOriginator = false,
+) {
   if (!/^\d{1,15}$/.test(loan.loanNumber)) throw new SubmissionVerificationError('Import the numeric Arive loan number from the MISMO.');
   if (exportGuid !== undefined && !isAriveExportGuid(exportGuid)) throw new SubmissionVerificationError('The MISMO file ID is invalid. Import the original ARIVE export again.');
   const read = await ariveReadOnlySession();
@@ -66,6 +75,10 @@ export async function verifyLeadershipSubmissionLoan(loan: AriveRolloutLoanIdent
   if (exportGuid && matches[0].sysGUID.toLowerCase() !== exportGuid.toLowerCase()) throw new SubmissionVerificationError(exportMismatch);
   const details = await read('/loans/' + encodeURIComponent(matches[0].sysGUID));
   if (exportGuid && (typeof details?.sysGUID !== 'string' || details.sysGUID.toLowerCase() !== exportGuid.toLowerCase())) throw new SubmissionVerificationError(exportMismatch);
+  if (requirePrimaryOriginator && (!normalizeAriveIdentity(loan.loanOfficer.email) ||
+    normalizeAriveIdentity(details?.loanOriginatorEmail) !== normalizeAriveIdentity(loan.loanOfficer.email))) {
+    throw new SubmissionVerificationError('The signed-in loan officer must be the primary originator on the Arive file.');
+  }
   // A secondary officer alone cannot establish the selected primary LO on a shared submission.
   const match = verifyAriveRolloutIdentity(details, { ...loan, secondaryLoanOfficer: null }, { ariveGuid: matches[0].sysGUID });
   const application = projectAriveApplicationSnapshot(details);

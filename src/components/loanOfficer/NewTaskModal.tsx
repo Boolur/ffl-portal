@@ -28,6 +28,7 @@ import { LeadershipSubmissionStage, useLeadershipSubmissionStage } from './Leade
 
 type NewTaskModalProps = {
   leadershipTest?: boolean;
+  submittingOfficer?: { id: string; name: string };
   open: boolean;
   onClose: () => void;
   isLoanOfficerAssistant?: boolean;
@@ -120,6 +121,7 @@ export function NewTaskModal({
   shortcutPrefill = null,
   onSubmissionSuccess,
   leadershipTest = false,
+  submittingOfficer,
 }: NewTaskModalProps) {
   const documentPilot = leadershipTest;
   const [documentUploadBusy, setDocumentUploadBusy] = useState(false);
@@ -296,6 +298,7 @@ export function NewTaskModal({
             <QcForm
               key={`qc-${documentPilot ? 'pilot' : 'standard'}-${shortcutPrefill?.loanId || 'new'}`}
               documentPilot={documentPilot}
+              submittingOfficer={documentPilot ? submittingOfficer : undefined}
               onDocumentUploadBusy={setDocumentUploadBusy}
               isLoanOfficerAssistant={isLoanOfficerAssistant}
               loanOfficerOptions={loanOfficerOptions}
@@ -1980,6 +1983,7 @@ function DisclosuresForm({
 
 function QcForm({
   documentPilot,
+  submittingOfficer,
   onDocumentUploadBusy,
   isLoanOfficerAssistant,
   loanOfficerOptions,
@@ -1991,6 +1995,7 @@ function QcForm({
   onSubmissionOverlay,
 }: {
   documentPilot: boolean;
+  submittingOfficer?: { id: string; name: string };
   onDocumentUploadBusy: (busy: boolean) => void;
   isLoanOfficerAssistant: boolean;
   loanOfficerOptions: Array<{ id: string; name: string }>;
@@ -2003,7 +2008,7 @@ function QcForm({
 }) {
   const [documents, setDocuments] = useState(initialPilotPackage);
   const [leadershipExportGuid, setLeadershipExportGuid] = useState<string>();
-  const officerChosenManually = useRef(Boolean(initialPrefill?.loanOfficerId));
+  const officerChosenManually = useRef(Boolean(submittingOfficer || initialPrefill?.loanOfficerId));
   const importSequence = useRef(0);
   const attachedLoan = useRef<ReturnType<typeof leadershipDocumentIdentity> | null>(null);
   const [importBlockedByAttachments, setImportBlockedByAttachments] = useState(false);
@@ -2063,7 +2068,7 @@ function QcForm({
         appraisalNotes: '',
         notesGoals: '',
       },
-      initialPrefill,
+      submittingOfficer ? { ...initialPrefill, loanOfficerId: submittingOfficer.id, loanOfficer: submittingOfficer.name } : initialPrefill,
     ),
   );
   const [importError, setImportError] = useState('');
@@ -2377,7 +2382,7 @@ function QcForm({
         }}>Return to original submission</button>}
         </>
       ) : documentPilot && qcStep === 4 ? (
-        <ProcessingDocumentsStep pkg={documents} onChange={updateDocuments} busy={isSubmitting || uploadBusy} onBusyChange={value => { setUploadBusy(value); onDocumentUploadBusy(value); }} onBack={() => onStepChange(3)} error={submitError} />
+        <ProcessingDocumentsStep pkg={documents} target={{ loanOfficerId: form.loanOfficerId, arriveLoanNumber: form.arriveLoanNumber }} onChange={updateDocuments} busy={isSubmitting || uploadBusy} onBusyChange={value => { setUploadBusy(value); onDocumentUploadBusy(value); }} onBack={() => onStepChange(3)} error={submitError} />
       ) : qcStep === 2 ? (
         <ProcessingMethodStep
           importPreview={documentPilot ? importPreview : undefined}
@@ -2459,6 +2464,7 @@ function QcForm({
                 loanOfficer: selectedLoanOfficer?.name || '',
               }));
             }}
+            disabled={Boolean(submittingOfficer)}
             required
           >
             <option value="">Select primary loan officer...</option>

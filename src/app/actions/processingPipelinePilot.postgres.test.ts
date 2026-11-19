@@ -190,6 +190,20 @@ describe.skipIf(!setup.url)('isolated Pilot and Standard server actions against 
       titleStatus: 'ORDERED',
       payoffStatus: 'ORDERED',
     });
+    // The same LO account can opt in from its dashboard without granting its
+    // normal role company-wide access or overwriting the Jr's manual edits.
+    await db.user.update({ where: { id: lo.id }, data: { roles: ['MANAGER'], loanOfficerPilotEnabled: true } });
+    login(lo);
+    expect(await getProcessingPipeline()).toMatchObject({ total: 0 });
+    expect(await getProcessingPipeline({ sheet: 'FUNDING' })).toMatchObject({ total: 1, canEdit: false, rows: [{ id: row.id, titleStatus: 'RECEIVED' }] });
+    const outside = await db.user.create({ data: { name: 'Other officer', email: 'outside@example.test', role: 'LOAN_OFFICER', roles: ['MANAGER'], loanOfficerPilotEnabled: true } });
+    login(outside);
+    expect(await getProcessingPipeline({ sheet: 'FUNDING' })).toMatchObject({ total: 0 });
+    expect(await getProcessingAriveSnapshot(row.id)).toMatchObject({ success: false });
+    await db.user.update({ where: { id: lo.id }, data: { loanOfficerPilotEnabled: false } });
+    login(lo);
+    expect(await getProcessingPipeline()).toMatchObject({ total: 1, rows: [{ id: row.id, titleStatus: 'ORDERED', ariveSync: null }] });
+    login(junior);
     expect(await db.notification.count()).toBe(0);
     expect(await getMemberDetails(junior.id)).toBeNull();
     const tasks = await getAllTasks();

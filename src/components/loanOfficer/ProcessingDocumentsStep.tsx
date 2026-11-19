@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { BadgeCheck, CheckCircle, FileSignature, FileText, FolderPlus, House, IdCard, Loader2, ReceiptText, ShieldCheck, Upload, X } from 'lucide-react';
 import { prepareProcessingSubmissionUpload } from '@/app/actions/submissionPilotActions';
 import { pilotSubmissionError, validatePilotFile, type PilotPackage } from '@/lib/submissionPilot';
+import type { OfficerSubmissionTarget } from '@/lib/officerPilotSubmission';
 
 const documentIcons = { mortgage: House, insurance: ShieldCheck, income: ReceiptText, identity: IdCard, veteran: BadgeCheck, disclosures: FileSignature };
 const NOT_APPLICABLE = 'Not applicable — selected by Loan Officer';
@@ -35,7 +36,8 @@ function DocumentDropzone({ item, disabled, uploading, onFiles }: {
   </>;
 }
 
-export function ProcessingDocumentsStep({ pkg, onChange, busy, onBusyChange, onBack, error }: {
+export function ProcessingDocumentsStep({ pkg, target, onChange, busy, onBusyChange, onBack, error }: {
+  target: OfficerSubmissionTarget;
   pkg: PilotPackage; onChange: (p: PilotPackage) => void; busy: boolean;
   onBusyChange: (busy: boolean) => void; onBack: () => void; error: string;
 }) {
@@ -58,7 +60,7 @@ export function ProcessingDocumentsStep({ pkg, onChange, busy, onBusyChange, onB
       if (!isBatch && item!.files.length + files.length > 10) throw new Error('Use up to 10 files per category.');
       for (const file of Array.from(files)) validatePilotFile(file.name, file.size, file.type);
       for (const file of Array.from(files)) {
-        const result = await prepareProcessingSubmissionUpload({ name: file.name, size: file.size, type: file.type });
+        const result = await prepareProcessingSubmissionUpload({ name: file.name, size: file.size, type: file.type }, target);
         if (!result.success) throw new Error(result.error);
         const response = await fetch(result.data.signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
         if (!response.ok) throw new Error(`Upload failed for ${file.name}. Please retry.`);

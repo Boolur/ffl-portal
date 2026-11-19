@@ -2,7 +2,7 @@ import type { ArivePipelineSync, Prisma, ProcessingPipelineLoan } from '@prisma/
 import { ARIVE_SYNC_PILOT, ariveSyncFieldLabel, type AriveSyncConflict, type AriveSyncIssue, type AriveSyncServiceTracker, type AriveSyncView } from './ariveSyncTypes';
 import { parseArivePipelineDate } from './arivePipelineMapping';
 import { ariveCanonicalWritesEnabled } from './ariveRolloutFlags';
-import { isPilotLeadershipRole } from './pilotLeadership';
+import { canUseOfficerSubmissionPilot, isPilotLeadershipRole } from './pilotLeadership';
 
 export function jsonRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -34,6 +34,13 @@ export async function isAriveManagedForEdit(db: Pick<Prisma.TransactionClient, '
 export function canViewGeneralizedArive(user: { id: string; active: boolean; role: string; roles: string[]; pilotViewEnabled?: boolean }, activeRole: string): boolean {
   return process.env.PILOT_VIEW_ENABLED === 'true' && user.active && user.pilotViewEnabled === true
     && isPilotLeadershipRole(activeRole) && (user.role === activeRole || user.roles.includes(activeRole));
+}
+
+/** Pipeline reads retain the role’s ordinary loan visibility, including an opted-in LO's own loans. */
+export function canReadPilotPipeline(user: Parameters<typeof canViewGeneralizedArive>[0] & { loanOfficerPilotEnabled?: boolean }, activeRole: string) {
+  if (activeRole !== 'LOAN_OFFICER') return canViewGeneralizedArive(user, activeRole);
+  return process.env.PILOT_VIEW_ENABLED === 'true' && user.active && user.loanOfficerPilotEnabled === true &&
+    canUseOfficerSubmissionPilot(user.id, activeRole, [user.role, ...user.roles]);
 }
 
 export function isAriveVisibleForLoan(state: ArivePipelineSync | null | undefined, loan: { id: string; loanNumber: string; loanOfficerId: string }, canViewGeneralized = false): boolean {

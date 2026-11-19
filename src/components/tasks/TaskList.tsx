@@ -4061,6 +4061,8 @@ export function TaskList({
               !Array.isArray(task.parentTask.submissionData)
             ? task.parentTask.submissionData
             : null;
+        const usePilotCorrectionForm = isLoanOfficerRole && isQcLinkedLoResponseTask &&
+          !!processingDocumentTaskId(task.submissionData) && parsedSubmissionData?.leadershipPilotTest === true;
         const workflowChip = getWorkflowChip(task.workflowState, task.disclosureReason);
         const showWorkflowChip =
           !canManageJrChecklist &&
@@ -6534,7 +6536,7 @@ export function TaskList({
                     </div>
                   )}
 
-                  {isLoTaskForCurrentLoanOfficer && task.status !== 'COMPLETED' && (
+                  {isLoTaskForCurrentLoanOfficer && !usePilotCorrectionForm && task.status !== 'COMPLETED' && (
                     <div className="mt-8 rounded-2xl border border-blue-200 bg-blue-50/60 p-6 shadow-sm space-y-4">
                       <div className="flex items-center gap-3 mb-2">
                         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
@@ -6861,7 +6863,7 @@ export function TaskList({
                       })()
                     )}
                     {(isLoanOfficerLikeCurrentRole || isManagerRole) &&
-                      shouldLoRespondFromFooter &&
+                      shouldLoRespondFromFooter && !usePilotCorrectionForm &&
                       (isApprovalReviewTask ? (
                         <>
                           <button

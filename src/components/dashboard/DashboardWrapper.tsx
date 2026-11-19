@@ -32,6 +32,7 @@ type DashboardWrapperProps = {
     role: string;
     email?: string;
     loQcTwoRowPilot?: boolean;
+    officerSubmissionPilot?: boolean;
     loDisclosureSubmissionEnabled?: boolean;
     loQcSubmissionEnabled?: boolean;
   };
@@ -138,6 +139,8 @@ function DashboardContent({
 
       {(activeRole === UserRole.LOAN_OFFICER || activeRole === UserRole.LOA) && (
         <LoanOfficerDashboard
+          key={JSON.stringify([user.id, activeRole, Boolean(user.officerSubmissionPilot)])}
+          pilotOfficer={user.officerSubmissionPilot && user.id && activeRole === UserRole.LOAN_OFFICER ? { id: user.id, name: user.name } : undefined}
           recentRequests={recentRequests}
           requestSummary={summary.requests}
           scopeKey={`${user.id}:${activeRole}`}

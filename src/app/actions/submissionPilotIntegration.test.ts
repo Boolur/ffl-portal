@@ -5,11 +5,12 @@ const mocks = vi.hoisted(() => ({
   session: vi.fn(), findUser: vi.fn(), findTask: vi.fn(), findRequest: vi.fn(), updateTask: vi.fn(),
   transaction: vi.fn(), lock: vi.fn(), configured: vi.fn(), classifications: vi.fn(),
   findLoan: vi.fn(), readNotes: vi.fn(), ariveSession: vi.fn(), api: vi.fn(),
-  storage: vi.fn(), download: vi.fn(), enabled: vi.fn(),
+  storage: vi.fn(), download: vi.fn(), enabled: vi.fn(), submissionActor: vi.fn(), otherOwner: vi.fn(),
 }));
 vi.mock('next-auth', () => ({ getServerSession: mocks.session }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
+vi.mock('@/lib/pilotPracticeAccess', () => ({ getSubmissionPilotActor: mocks.submissionActor }));
 vi.mock('@/lib/taskLifecycleTimeline', () => ({ appendLifecycleHistoryEvent: vi.fn() }));
 vi.mock('@/lib/adminTiers', async () => import('../../lib/adminTiers'));
 vi.mock('@/lib/submissionPilot', async () => ({ ...await import('../../lib/submissionPilot'), isSubmissionPilotEnabled: mocks.enabled }));
@@ -17,6 +18,7 @@ vi.mock('@/lib/ariveTrackers', async () => import('../../lib/ariveTrackers'));
 vi.mock('@/lib/ariveCrypto', () => ({ encryptAriveCredentials: vi.fn() }));
 vi.mock('@/lib/prisma', () => ({ prisma: {
   user: { findUnique: mocks.findUser },
+  loan: { findFirst: mocks.otherOwner },
   task: { findUnique: mocks.findTask, findFirst: mocks.findRequest, updateMany: mocks.updateTask },
   $transaction: mocks.transaction, $executeRaw: mocks.lock,
 } }));
@@ -89,6 +91,24 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('paused submission pilot integration boundary', () => {
+  it('only issues private staging URLs for the signed-in pilot officer’s own submission', async () => {
+    mocks.enabled.mockReturnValue(true);
+    const file = { name: 'example.pdf', size: 30, type: 'application/pdf' };
+    const target = { loanOfficerId: 'officer', arriveLoanNumber: '90001' };
+    mocks.submissionActor.mockResolvedValue({ id: 'officer', role: 'LOAN_OFFICER' });
+    expect(await prepareProcessingSubmissionUpload(file)).toMatchObject({ success: false });
+    expect(await prepareProcessingSubmissionUpload(file, { ...target, loanOfficerId: 'other' })).toMatchObject({ success: false });
+    mocks.otherOwner.mockResolvedValueOnce({ id: 'another-owners-file' });
+    expect(await prepareProcessingSubmissionUpload(file, target)).toMatchObject({ success: false });
+    expect(mocks.storage).not.toHaveBeenCalled();
+    mocks.submissionActor.mockRejectedValueOnce(new Error('Turn on Pilot for submissions.'));
+    expect(await prepareProcessingSubmissionUpload(file, target)).toMatchObject({ success: false });
+    expect(mocks.storage).not.toHaveBeenCalled();
+    const sign = vi.fn().mockResolvedValue({ data: { signedUrl: 'synthetic-upload' } });
+    mocks.storage.mockReturnValue({ createSignedUploadUrl: sign });
+    expect(await prepareProcessingSubmissionUpload(file, target)).toMatchObject({ success: true, data: { file: { name: 'example.pdf' } } });
+    expect(sign).toHaveBeenCalledWith(expect.stringMatching(/^processing-submission\/officer\//));
+  });
   it('keeps Matt’s general LO submission uploads paused', async () => {
     expect(mocks.enabled()).toBe(false);
     expect(await prepareProcessingSubmissionUpload({ name: 'synthetic.pdf', size: 3, type: 'application/pdf' })).toMatchObject({ success: false, error: expect.stringContaining('paused') });

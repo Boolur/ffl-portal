@@ -5,7 +5,7 @@ import { FlaskConical, Loader2, X } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { UserRole } from '@prisma/client';
 import { getPilotPreferences, setPilotViewEnabled } from '@/app/actions/pilotPreferenceActions';
-import { isPilotLeadershipRole } from '@/lib/pilotLeadership';
+import { canUseOfficerSubmissionPilot, isPilotLeadershipRole } from '@/lib/pilotLeadership';
 import { resetPortalIdentity } from '@/lib/portalLiveUpdates';
 import { hasOpenStandardDraft, pilotModeTransition } from '@/lib/pilotModeTransition';
 
@@ -13,13 +13,13 @@ import { hasOpenStandardDraft, pilotModeTransition } from '@/lib/pilotModeTransi
 export function PilotModeToggle({ activeRole, availableRoles }: { activeRole: UserRole; availableRoles: UserRole[] }) {
   const { data: session, status } = useSession();
   const id = session?.user?.id;
-  const candidate = isPilotLeadershipRole(activeRole);
+  const candidate = isPilotLeadershipRole(activeRole) || (id && canUseOfficerSubmissionPilot(id, activeRole, availableRoles));
   if (status !== 'authenticated' || !id || !candidate) return null;
   const identity = JSON.stringify([id, activeRole, [...availableRoles].sort()]);
-  return <AuthorizedPilotToggle key={identity} userId={id} />;
+  return <AuthorizedPilotToggle key={identity} userId={id} activeRole={activeRole} />;
 }
 
-function AuthorizedPilotToggle({ userId }: { userId: string }) {
+function AuthorizedPilotToggle({ userId, activeRole }: { userId: string; activeRole: UserRole }) {
   const channel = useRef<BroadcastChannel | null>(null);
   const [preference, setPreference] = useState<{ enabled: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -34,16 +34,16 @@ function AuthorizedPilotToggle({ userId }: { userId: string }) {
     mounted.current = true;
     let current = true;
     void getPilotPreferences().then(result => {
-      if (current && result.success && result.data.eligible && result.data.available) {
+      if (current && result.success && result.data.role === activeRole && result.data.eligible && result.data.available) {
         tabMode.current = result.data.enabled;
         setPreference({ enabled: result.data.enabled });
       }
     }).catch(() => { /* Fail closed: no authorized state, no toggle. */ });
     return () => { current = false; mounted.current = false; };
-  }, []);
+  }, [activeRole]);
 
   useEffect(() => {
-    const updates = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(`bisu-pilot-preference:${userId}`);
+    const updates = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(`bisu-pilot-preference:${userId}:${activeRole === 'LOAN_OFFICER' ? 'officer' : 'leadership'}`);
     channel.current = updates;
     let sequence = 0;
     const recheck = async () => {
@@ -52,7 +52,7 @@ function AuthorizedPilotToggle({ userId }: { userId: string }) {
       try {
         const current = await getPilotPreferences();
         if (!mounted.current || busy.current || ticket !== sequence) return;
-        if (!current.success || !current.data.eligible || !current.data.available) {
+        if (!current.success || current.data.role !== activeRole || !current.data.eligible || !current.data.available) {
           resetPortalIdentity(); window.location.reload(); return;
         }
         const action = pilotModeTransition(tabMode.current, current.data.enabled, hasOpenStandardDraft(document));
@@ -63,7 +63,7 @@ function AuthorizedPilotToggle({ userId }: { userId: string }) {
     if (updates) updates.onmessage = recheck;
     window.addEventListener('focus', recheck);
     return () => { sequence++; channel.current = null; updates?.close(); window.removeEventListener('focus', recheck); };
-  }, [userId]);
+  }, [userId, activeRole]);
 
   useEffect(() => {
     if (keepDraft && !draftDialog.current?.open) draftDialog.current?.showModal();
@@ -80,7 +80,7 @@ function AuthorizedPilotToggle({ userId }: { userId: string }) {
     setSaving(true);
     setNotice(null);
     try {
-      const result = await setPilotViewEnabled(!preference.enabled);
+      const result = await setPilotViewEnabled(!preference.enabled, activeRole);
       if (!mounted.current) return;
       if (!result.success) {
         setNotice({ text: result.error, error: true });
@@ -103,7 +103,7 @@ function AuthorizedPilotToggle({ userId }: { userId: string }) {
     busy.current = true;
     setSaving(true);
     try {
-      const result = await setPilotViewEnabled(false);
+      const result = await setPilotViewEnabled(false, activeRole);
       if (!mounted.current) return;
       if (!result.success) { setNotice({text: result.error, error: true}); return; }
       tabMode.current = false;

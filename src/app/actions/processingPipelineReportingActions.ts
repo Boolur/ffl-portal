@@ -10,7 +10,7 @@ import {
 } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { canViewGeneralizedArive } from '@/lib/ariveSyncState';
+import { canReadPilotPipeline } from '@/lib/ariveSyncState';
 import { pilotReadIndex } from '@/lib/leadershipPilotReads';
 import { splitBorrowerName } from '@/lib/processingBorrowerDetails';
 import {
@@ -174,10 +174,10 @@ async function getReportActor(): Promise<ReportActor | null> {
   if (!id || !role || !canGenerateProcessingReports(role)) return null;
   const user = await prisma.user.findUnique({
     where: { id },
-    select: { id:true,role:true,roles:true,pilotViewEnabled:true,active: true, processingAssignmentGroups: true },
+    select: { id:true,role:true,roles:true,pilotViewEnabled:true,loanOfficerPilotEnabled:true,active: true, processingAssignmentGroups: true },
   });
   if (!user?.active || (user.role!==role && !user.roles.includes(role))) return null;
-  return { id, role, processingAssignmentGroups: user.processingAssignmentGroups, pilotMode:canViewGeneralizedArive(user,role) };
+  return { id, role, processingAssignmentGroups: user.processingAssignmentGroups, pilotMode:canReadPilotPipeline(user,role) };
 }
 
 function iso(value: Date | null) {

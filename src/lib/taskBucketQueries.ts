@@ -98,6 +98,7 @@ export type TaskBucketQueryRow = {
   loanOfficerApprovedAt: Date | null;
   submissionData: Prisma.JsonValue | null;
   loan: {
+    loanOfficerId?: string | null;
     loanNumber: string;
     borrowerName: string;
     stage: string;
@@ -1080,6 +1081,7 @@ async function hydrateTaskRows(
 const TASK_BUCKET_QUERY_INCLUDE = {
   loan: {
     select: {
+      loanOfficerId: true,
       loanNumber: true,
       borrowerName: true,
       stage: true,

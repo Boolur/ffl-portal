@@ -16,7 +16,7 @@ import {
 } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
 import { isAdmin } from '@/lib/adminTiers';
-import { ariveSyncSameValue, guardArivePipelineEdit, isAriveManagedForEdit, canViewGeneralizedArive, jsonRecord, preserveAriveManagedFields, savedAriveTrackers } from '../../lib/ariveSyncState';
+import { ariveSyncSameValue, guardArivePipelineEdit, isAriveManagedForEdit, canReadPilotPipeline, jsonRecord, preserveAriveManagedFields, savedAriveTrackers } from '../../lib/ariveSyncState';
 import { ARIVE_LOAN_STAGE_OPTIONS } from '../../lib/arivePipelineMapping';
 import { readAriveApplicationView } from '../../lib/ariveApplicationSnapshot';
 import { savedAriveNotes } from '../../lib/ariveSavedNotes';
@@ -81,10 +81,10 @@ async function getActor(): Promise<Actor | null> {
   if (!id || !role) return null;
   const user = await prisma.user.findUnique({
     where: { id },
-    select: { processingAssignmentGroups: true, active: true, role: true, roles: true, pilotViewEnabled: true },
+    select: { processingAssignmentGroups: true, active: true, role: true, roles: true, pilotViewEnabled: true, loanOfficerPilotEnabled: true },
   });
   if (!user?.active || ![user.role, ...user.roles].includes(role)) return null;
-  const canViewGeneralized = canViewGeneralizedArive({ ...user, id }, role);
+  const canViewGeneralized = canReadPilotPipeline({ ...user, id }, role);
   return {
     id,
     role,

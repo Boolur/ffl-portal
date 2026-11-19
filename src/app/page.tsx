@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { UserRole } from '@prisma/client';
 import { startPerfTimer } from '@/lib/perf';
 import { getDashboardSummary, getRecentDashboardRequests } from '@/lib/dashboardQueries';
+import { canReadPilotPipeline } from '@/lib/ariveSyncState';
 
 export default async function Home() {
   const endPerf = startPerfTimer('page.dashboard.render.total');
@@ -20,6 +21,7 @@ export default async function Home() {
     ? await prisma.user.findUnique({
         where: { id: sessionUserId },
         select: {
+          id: true, role: true, roles: true, active: true, loanOfficerPilotEnabled: true,
           loQcTwoRowPilot: true,
           loDisclosureSubmissionEnabled: true,
           loQcSubmissionEnabled: true,
@@ -34,6 +36,7 @@ export default async function Home() {
     roles: sessionRoles,
     id: sessionUserId,
     loQcTwoRowPilot: Boolean(userFlags?.loQcTwoRowPilot),
+    officerSubmissionPilot: Boolean(sessionRole === UserRole.LOAN_OFFICER && userFlags && canReadPilotPipeline(userFlags, sessionRole)),
     loDisclosureSubmissionEnabled:
       userFlags?.loDisclosureSubmissionEnabled ?? true,
     loQcSubmissionEnabled: userFlags?.loQcSubmissionEnabled ?? true,

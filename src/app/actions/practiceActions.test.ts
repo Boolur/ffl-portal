@@ -64,6 +64,21 @@ beforeEach(() => {
 afterEach(() => { expect(m.productionMutation).not.toHaveBeenCalled(); vi.unstubAllEnvs(); });
 
 describe('pilot preference and fresh authorization', () => {
+  it('keeps an eligible Loan Officer’s opt-in separate from the leadership preference', async () => {
+    const owner = { ...user(UserRole.ADMIN_III), roles: [UserRole.ADMIN_III, UserRole.LOAN_OFFICER], loanOfficerPilotEnabled: false };
+    m.user.mockResolvedValue(owner);
+    m.session.mockResolvedValue({ user: { id: owner.id, activeRole: 'LOAN_OFFICER' } });
+    expect(await getPilotPreferences()).toMatchObject({ success: true, data: { role: 'LOAN_OFFICER', enabled: false } });
+    expect(await setPilotViewEnabled(true, 'ADMIN_III')).toMatchObject({ success: false });
+    expect(m.preference).not.toHaveBeenCalled();
+    expect(await setPilotViewEnabled(true, 'LOAN_OFFICER')).toMatchObject({ success: true });
+    expect(m.preference).toHaveBeenCalledWith({ where: { id: owner.id }, data: { loanOfficerPilotEnabled: true } });
+    m.user.mockResolvedValue({ ...owner, id: 'ordinary-officer', role: UserRole.LOAN_OFFICER, roles: [UserRole.LOAN_OFFICER], loanOfficerPilotEnabled: true });
+    m.session.mockResolvedValue({ user: { id: 'ordinary-officer', activeRole: 'LOAN_OFFICER' } });
+    expect(await getPilotPreferences()).toMatchObject({ success: false });
+    expect(await setPilotViewEnabled(true, 'LOAN_OFFICER')).toMatchObject({ success: false });
+    expect(m.preference).toHaveBeenCalledTimes(1);
+  });
   it('is disabled by default, allows opting out while off, and never treats a preference as authority', async () => {
     vi.stubEnv('PILOT_VIEW_ENABLED', '');
     m.user.mockResolvedValue({ ...user(), pilotViewEnabled: true });

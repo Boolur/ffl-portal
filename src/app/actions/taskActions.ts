@@ -1,7 +1,8 @@
 'use server';
 import { readPilotPackage, reconcileReturnedPilotReview, activeProcessingDocumentTaskId as processingDocumentTaskId, SUBMISSION_PILOT_LO_ID, type PilotPackage } from '@/lib/submissionPilot';
-import { requireLeadershipPilot, leadershipTestViewer, isLeadershipTestRequest, sameLeadershipTestProperty, submissionVerificationMessage, verifyLeadershipSubmissionLoan } from '@/lib/leadershipTestSubmission';
-import { canAccessLeadershipRequest, isPilotLeadershipRole, leadershipLoanScope, leadershipOfficerScope, leadershipRequestScope } from '@/lib/pilotLeadership';
+import { getSubmissionPilotActor, leadershipTestViewer, isLeadershipTestRequest, sameLeadershipTestProperty, submissionVerificationMessage, verifyLeadershipSubmissionLoan } from '@/lib/leadershipTestSubmission';
+import { canAccessLeadershipRequest, canUseOfficerSubmissionPilot, isPilotLeadershipRole, leadershipLoanScope, leadershipOfficerScope, leadershipRequestScope } from '@/lib/pilotLeadership';
+import { officerDocumentAccess, ownsOfficerSubmissionTarget, ownsOfficerTestRequest } from '../../lib/officerPilotSubmission';
 import { pilotReviewChecklist, pilotDecisionError } from '@/lib/pilotReviewChecklist';
 import { verifyProcessingSubmissionDocuments } from '@/lib/processingSubmissionDocuments';
 
@@ -3155,7 +3156,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
 
 export async function createLeadershipTestSubmission(payload: SubmissionPayload) {
   if (payload.submissionType !== 'QC') return { success: false, error: 'Choose Submit to Processing for a test.' };
-  await requireLeadershipPilot();
+  await getSubmissionPilotActor();
   return createPortalSubmission(payload, true);
 }
 
@@ -3168,7 +3169,7 @@ type SubmissionStageIdentity = {
 };
 
 async function readSubmissionStage(
-  actor: Awaited<ReturnType<typeof requireLeadershipPilot>>,
+  actor: Awaited<ReturnType<typeof getSubmissionPilotActor>>,
   input: SubmissionStageIdentity,
   address: string,
   secondaryOfficerId?: string | null,
@@ -3178,9 +3179,16 @@ async function readSubmissionStage(
     if (!/^\d{1,15}$/.test(number) || !input.borrowerFirstName.trim() || !input.borrowerLastName.trim() || !input.loanOfficerId) {
       return { success: false as const, error: 'Enter the Arive loan number, primary borrower, and primary loan officer to check the status.' };
     }
+    const submittingAsOfficer = actor.role === UserRole.LOAN_OFFICER;
+    if (submittingAsOfficer && !await ownsOfficerSubmissionTarget(prisma, actor.id, input)) {
+      return { success: false as const, error: 'Choose a file for which you are the primary loan officer.' };
+    }
+    const officerScope: Prisma.UserWhereInput = submittingAsOfficer
+      ? { active: true, OR: [{ role: UserRole.LOAN_OFFICER }, { roles: { has: UserRole.LOAN_OFFICER } }] }
+      : leadershipOfficerScope(actor);
     const ids = [input.loanOfficerId, ...(secondaryOfficerId ? [secondaryOfficerId] : [])];
     const officers = await prisma.user.findMany({
-      where: { AND: [leadershipOfficerScope(actor), { id: { in: ids } }] },
+      where: { AND: [officerScope, { id: { in: ids } }] },
       select: { id: true, email: true },
     });
     const primary = officers.find(officer => officer.id === input.loanOfficerId);
@@ -3195,7 +3203,7 @@ async function readSubmissionStage(
       id: '', loanNumber: number, borrowerName: [input.borrowerFirstName, input.borrowerLastName].join(' ').trim(),
       borrowerFirstName: input.borrowerFirstName, borrowerLastName: input.borrowerLastName,
       loanOfficer: primary, secondaryLoanOfficer: null,
-    }, address, input.leadershipExportGuid);
+    }, address, input.leadershipExportGuid, submittingAsOfficer);
     return { success: true as const, guid: result.guid, stage: result.stage };
   } catch (error) {
     return { success: false as const, error: submissionVerificationMessage(error) };
@@ -3206,27 +3214,27 @@ export async function checkLeadershipSubmissionStage(input: SubmissionStageIdent
   propertyStreet: string; propertyUnit?: string; propertyCity: string; propertyState: string; propertyZip: string;
 }) {
   try {
-    const actor = await requireLeadershipPilot();
+    const actor = await getSubmissionPilotActor();
     const property = normalizeProcessingProperty({
       street: input.propertyStreet, unit: input.propertyUnit, city: input.propertyCity, state: input.propertyState, zip: input.propertyZip,
     });
     if (!property.success) return property;
     const result = await readSubmissionStage(actor, input, property.address);
     if (!result.success) return result;
-    const viewer = await requireLeadershipPilot();
+    const viewer = await getSubmissionPilotActor();
     if (actor.id !== viewer.id || actor.role !== viewer.role) return { success: false as const, error: 'Your Pilot session changed. Reopen the submission.' };
     const { eligible, stageLabel, checkedAt } = result.stage;
     return { success: true as const, eligible, stageLabel, checkedAt };
   } catch {
-    return { success: false as const, error: 'Open the submission in Pilot with an active leadership role to check the Arive status.' };
+    return { success: false as const, error: 'Open Submit to Processing with Pilot enabled to check the Arive status.' };
   }
 }
 
 export async function resolveLeadershipMismoOfficer(email: string): Promise<string | null> {
-  const actor = await requireLeadershipPilot();
+  const actor = await getSubmissionPilotActor();
   if (typeof email !== 'string' || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return null;
   const matches = await prisma.user.findMany({
-    where: { AND: [leadershipOfficerScope(actor), { email: { equals: email.trim(), mode: 'insensitive' } }] },
+    where: { AND: [actor.role === UserRole.LOAN_OFFICER ? { id: actor.id, active: true } : leadershipOfficerScope(actor), { email: { equals: email.trim(), mode: 'insensitive' } }] },
     select: { id: true }, take: 2,
   });
   return matches.length === 1 ? matches[0].id : null;
@@ -3680,7 +3688,7 @@ async function createPortalSubmission(payload: SubmissionPayload, leadershipTest
     let documentPackage: PilotPackage | null = null;
     let verifiedStage: Awaited<ReturnType<typeof verifyLeadershipSubmissionLoan>>['stage'] | null = null;
     if (leadershipTest) {
-      const actor = await requireLeadershipPilot();
+      const actor = await getSubmissionPilotActor();
       if (actor.id !== sessionUserId || actor.role !== role) return { success: false, error: 'Your session changed. Open the submission again.' };
       const identity = await readSubmissionStage(actor, {
         arriveLoanNumber: normalizedArriveLoanNumber, loanOfficerId: loanOfficerUser.id,
@@ -3887,8 +3895,12 @@ async function createPortalSubmission(payload: SubmissionPayload, leadershipTest
     const { loan, createdTask } = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'submission-number:' + normalizedArriveLoanNumber}))`;
       if (leadershipTest) {
-        const actor = await tx.user.findUnique({ where: { id: sessionUserId }, select: { active: true, role: true, roles: true, pilotViewEnabled: true } });
-        if (!actor?.active || !actor.pilotViewEnabled || !role || !isPilotLeadershipRole(role) || ![actor.role, ...actor.roles].includes(role)) throw new Error('Pilot access changed.');
+        const actor = await tx.user.findUnique({ where: { id: sessionUserId }, select: { id: true, active: true, role: true, roles: true, pilotViewEnabled: true, loanOfficerPilotEnabled: true, loQcSubmissionEnabled: true } });
+        if (!actor?.active || !role || ![actor.role, ...actor.roles].includes(role)) throw new Error('Pilot access changed.');
+        if (role === UserRole.LOAN_OFFICER) {
+          if (!actor.loanOfficerPilotEnabled || !actor.loQcSubmissionEnabled || actor.id !== loanOfficerUser.id ||
+            !canUseOfficerSubmissionPilot(actor.id, role, [actor.role, ...actor.roles])) throw new Error('Pilot submission access changed.');
+        } else if (!isPilotLeadershipRole(role) || !actor.pilotViewEnabled) throw new Error('Pilot access changed.');
       }
       const loan = await resolveLoan(tx);
       await tx.$executeRaw`
@@ -6201,7 +6213,7 @@ export async function respondToDisclosureRequest(
 ) {
   try {
     const session = await getServerSession(authOptions);
-    const role = session?.user?.role as UserRole | undefined;
+    const role = (session?.user?.activeRole || session?.user?.role) as UserRole | undefined;
     const userId = session?.user?.id as string | undefined;
     if (!role || !userId) return { success: false, error: 'Not authenticated.' };
 
@@ -6265,6 +6277,14 @@ export async function respondToDisclosureRequest(
       },
     });
     if (!parentTask) return { success: false, error: 'Parent task not found.' };
+
+    if (role === UserRole.LOAN_OFFICER && ownsOfficerTestRequest(userId, task.loan?.loanOfficerId, parentTask.submissionData)) {
+      const officer = await prisma.user.findUnique({ where: { id: userId }, select: {
+        id: true, active: true, role: true, roles: true, loanOfficerPilotEnabled: true, loQcSubmissionEnabled: true,
+      } });
+      if (!officer?.active) return { success: false, error: 'Account unavailable.' };
+      if (officerDocumentAccess(officer, role)) return { success: false, error: 'Return the corrected documents from the submission checklist.' };
+    }
 
     const canManageAll = isAdmin(role) || role === UserRole.MANAGER;
     const isVisibleLoanOfficerResponder =

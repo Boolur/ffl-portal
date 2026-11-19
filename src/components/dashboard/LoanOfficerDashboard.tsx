@@ -5,6 +5,7 @@ import type { DashboardSummary, DashboardRequestPage } from '@/lib/dashboardSumm
 import { RecentDashboardRequests } from './RecentDashboardRequests';
 
 type LoanOfficerDashboardProps = {
+  pilotOfficer?: { id: string; name: string };
   recentRequests: DashboardRequestPage;
   requestSummary: DashboardSummary['requests'];
   scopeKey: string;
@@ -22,6 +23,7 @@ type LoanOfficerDashboardProps = {
 };
 
 export function LoanOfficerDashboard({
+  pilotOfficer,
   recentRequests,
   requestSummary,
   scopeKey,
@@ -151,7 +153,7 @@ export function LoanOfficerDashboard({
             </span>
           </div>
           <p className="text-slate-500 mb-8 max-w-sm">
-            Send a completed loan file to the Jr Processing team for review and completion.
+            {pilotOfficer ? 'Submit a Pilot test file with its Arive status and supporting documents.' : 'Send a completed loan file to the Jr Processing team for review and completion.'}
           </p>
           <div
             className={`mt-auto w-full inline-flex items-center justify-center px-6 py-3 rounded-xl font-semibold ${
@@ -201,6 +203,8 @@ export function LoanOfficerDashboard({
       />
 
       <NewTaskModal
+        leadershipTest={Boolean(pilotOfficer && initialTaskType === 'QC')}
+        submittingOfficer={initialTaskType === 'QC' ? pilotOfficer : undefined}
         open={showNewTask}
         onClose={() => setShowNewTask(false)}
         isLoanOfficerAssistant={isLoanOfficerAssistant}

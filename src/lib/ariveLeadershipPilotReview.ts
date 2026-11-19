@@ -54,8 +54,8 @@ export function previousPilotReview(
     if (prior.loanId !== source.loanId || prior.number !== source.loan.loanNumber || prior.sourceHash !== digest)
       return null;
     if (prior.outcome === 'MATCHED' || prior.outcome === 'SOURCE_CHANGED') return null;
-    if ([prior.searchStatus, prior.detailStatus, prior.probeStatus].includes('403'))
-      return 'Previous branch check returned HTTP 403. Arive denied access to this file.';
+    if (prior.detailStatus === '403') return 'Arive denied the branch detail request for the matched loan ID (HTTP 403).';
+    if (prior.searchStatus === '403') return 'Arive denied the branch loan search (HTTP 403).';
     const labels: Record<string, string> = {
       INVALID_LOAN_NUMBER: 'Previous branch check found an invalid numeric loan number.',
       DUPLICATE_PORTAL_NUMBER: 'Previous branch check found a duplicate portal number.',

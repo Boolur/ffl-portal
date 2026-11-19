@@ -5,7 +5,8 @@ vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 vi.mock('@/lib/ariveCrypto', () => ({ decryptAriveCredentials: vi.fn() }));
 import { requestPilotFileRefresh } from './ariveLeadershipPilotWorker';
 import { pilotIdentityHash } from './ariveLeadershipPilotIdentity';
-import { summarizePilotCoverage } from './leadershipPilotReads';
+import { pilotReviewMessage, summarizePilotCoverage } from './leadershipPilotReads';
+import { isPilotAccessDenied } from './ariveSyncTypes';
 
 const now = new Date();
 const loan = { id: 'fixture', loanNumber: '901', borrowerName: 'Fixture Borrower', borrowerFirstName: 'Fixture',
@@ -31,6 +32,12 @@ function admission(capacity: number, status?: string, reading = false) {
 }
 
 describe('leadership file admission', () => {
+  it('does not count a legacy ambiguous numeric probe as a confirmed file access denial', () => {
+    const legacy = 'Previous branch check returned HTTP 403. Arive denied access to this file.';
+    expect(isPilotAccessDenied(pilotReviewMessage(legacy))).toBe(false);
+    expect(isPilotAccessDenied(pilotReviewMessage('Arive denied the branch detail request for the matched loan ID (HTTP 403).'))).toBe(true);
+    expect(pilotReviewMessage(null)).toBeNull();
+  });
   it('does not enqueue a new, pending, or review file outside the cohort on either Sync or watch', async () => {
     for (const status of [undefined, 'PENDING', 'REVIEW']) {
       const { request, tx } = admission(10, status);
@@ -45,6 +52,32 @@ describe('leadership file admission', () => {
     const { request, tx } = admission(10, 'PENDING', true);
     expect(await request()).toEqual({ queued: false, reason: 'IN_PROGRESS' });
     expect(tx.pilotAriveProjection.upsert).not.toHaveBeenCalled();
+  });
+
+  it('expedites an explicit retry only after the source identity or branch connection changed since the failed check', async () => {
+    const failedAt = new Date(+now - 120_000), correctedAt = new Date(+now - 60_000), retry = new Date(+now + 3_600_000);
+    for (const [cause, watch, expected] of [
+      ['number', false, true], ['credentials', false, true], ['same identity', false, false],
+      ['already tried', false, false], ['number', true, false],
+    ] as const) {
+      const db = {
+        $executeRaw: vi.fn(),
+        pilotAriveControl: { findUnique: vi.fn().mockResolvedValue({enabled: true, cohortLimit: null}) },
+        ariveIntegrationConfig: { findUnique: vi.fn().mockResolvedValue({ updatedAt: cause === 'credentials' ? correctedAt : failedAt }) },
+        processingPipelineLoan: { findUnique: vi.fn().mockResolvedValue({
+          loan: { ...loan, updatedAt: cause === 'already tried' ? new Date(+failedAt - 1000) : correctedAt },
+          pilotArive: { enrollmentStatus: 'REVIEW', ariveLoanId: ['number','already tried'].includes(cause) ? 'old-number' : loan.loanNumber,
+            identityHash: pilotIdentityHash(loan), connectionRevision: failedAt, lastAttemptAt: failedAt, nextAttemptAt: retry,
+            failureCount: 1, manualRefreshRequestedAt: null, leaseToken: null, leaseUntil: null },
+        }) },
+        pilotAriveProjection: { upsert: vi.fn() },
+      };
+      expect(await requestPilotFileRefresh('fixture', {watch},
+        { $transaction: (work: (client: typeof db) => unknown) => work(db) } as never)).toEqual({ queued: true });
+      const patch = db.pilotAriveProjection.upsert.mock.calls[0][0].update;
+      if (expected) expect(patch.nextAttemptAt).toEqual(patch.manualRefreshRequestedAt);
+      else expect(patch).not.toHaveProperty('nextAttemptAt');
+    }
   });
 
   it('counts each eligible file once, including undiscovered files and failed identities', () => {

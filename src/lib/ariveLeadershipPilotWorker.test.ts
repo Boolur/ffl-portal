@@ -173,7 +173,9 @@ describe('leadership-only collection', () => {
       detailStatus: null,
       probeStatus: '403',
     };
-    expect(previousPilotReview(source, canonical, prior, revision)).toMatch(/HTTP 403/);
+    expect(previousPilotReview(source, canonical, prior, revision)).toMatch(/no exact/);
+    expect(previousPilotReview(source, canonical, { ...prior, detailStatus: '403' }, revision)).toMatch(/matched loan ID.*403/);
+    expect(previousPilotReview(source, canonical, { ...prior, searchStatus: '403' }, revision)).toMatch(/branch loan search.*403/);
     expect(previousPilotReview(source, canonical, { ...prior, probeStatus: null }, revision)).toMatch(/no exact/);
     expect(
       previousPilotReview(source, canonical, { ...prior, outcome: 'MATCHED', probeStatus: null }, revision),

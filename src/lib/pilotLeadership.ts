@@ -1,9 +1,15 @@
 import type { Prisma, UserRole } from '@prisma/client';
+import { SUBMISSION_PILOT_LO_ID } from './submissionPilot';
 
 /** The Pilot switch follows the role currently in use, including on multi-role accounts. */
 export function isPilotLeadershipRole(role: unknown): boolean {
   return role === 'ADMIN_I' || role === 'ADMIN_II' || role === 'ADMIN_III'
     || role === 'MANAGER' || role === 'PROCESSING_MANAGER';
+}
+
+export function canUseOfficerSubmissionPilot(id: string, activeRole: unknown, assignedRoles: readonly string[]) {
+  return activeRole === 'LOAN_OFFICER' && assignedRoles.includes('LOAN_OFFICER') &&
+    (id === SUBMISSION_PILOT_LO_ID || assignedRoles.some(isPilotLeadershipRole));
 }
 
 type DeskActor = { id: string; role: UserRole };

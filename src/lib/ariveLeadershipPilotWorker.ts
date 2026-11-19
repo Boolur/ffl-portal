@@ -196,8 +196,9 @@ export async function requestPilotFileRefresh(
     const row = await tx.processingPipelineLoan.findUnique({
       where: { id: pipelineId },
       select: {
-        loan: { select: rolloutLoanSelect },
-        pilotArive: { select: { enrollmentStatus: true, manualRefreshRequestedAt: true, leaseToken: true, leaseUntil: true } },
+        loan: { select: { ...rolloutLoanSelect, updatedAt: true } },
+        pilotArive: { select: { enrollmentStatus: true, manualRefreshRequestedAt: true, leaseToken: true, leaseUntil: true,
+          ariveLoanId: true, identityHash: true, connectionRevision: true, lastAttemptAt: true, nextAttemptAt: true, failureCount: true } },
       },
     });
     if (!row || (options.expectedIdentityHash && options.expectedIdentityHash !== pilotIdentityHash(row.loan)))
@@ -212,9 +213,25 @@ export async function requestPilotFileRefresh(
       if (reserved >= control.cohortLimit) return { queued: false, reason: 'COHORT_FULL' } as const;
     }
     if (reading && !options.watch) return { queued: false, reason: 'IN_PROGRESS' } as const;
+    const previous = row.pilotArive;
+    let recheckCorrectedFile = false;
+    if (!options.watch && previous?.nextAttemptAt && previous.nextAttemptAt > now &&
+        (previous.enrollmentStatus === 'REVIEW' || previous.failureCount > 0)) {
+      // A prior failure applies to the identity and connection that were checked.
+      // An explicit Sync can retry a correction. Ordinary retries, passive
+      // watching and all provider-wide limits continue to use their normal gates.
+      const identityChanged = previous.ariveLoanId !== row.loan.loanNumber ||
+        (previous.identityHash !== null && previous.identityHash !== pilotIdentityHash(row.loan));
+      recheckCorrectedFile = identityChanged && (!previous.lastAttemptAt || row.loan.updatedAt > previous.lastAttemptAt);
+      if (!recheckCorrectedFile) {
+        const config = await tx.ariveIntegrationConfig.findUnique({ where: { id: CONNECTION }, select: { updatedAt: true } });
+        const lastCheck = previous.lastAttemptAt ?? previous.connectionRevision;
+        recheckCorrectedFile = !!config && !!lastCheck && config.updatedAt > lastCheck;
+      }
+    }
     const data = options.watch
       ? { watchedUntil: new Date(+now + 2 * MINUTE) }
-      : { manualRefreshRequestedAt: row.pilotArive?.manualRefreshRequestedAt ?? now };
+      : { manualRefreshRequestedAt: previous?.manualRefreshRequestedAt ?? now, ...(recheckCorrectedFile && { nextAttemptAt: now }) };
     await tx.pilotAriveProjection.upsert({
       where: { pipelineId },
       create: { pipelineId, ariveLoanId: row.loan.loanNumber, ...data },
