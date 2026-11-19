@@ -234,7 +234,9 @@ export async function requestPilotFileRefresh(
         const lastCheck = previous.lastAttemptAt ?? previous.connectionRevision;
         recheckCorrectedFile = !!config && !!lastCheck && config.updatedAt > lastCheck;
         if (!recheckCorrectedFile && config && previous.enrollmentStatus === 'REVIEW' &&
-            previous.enrollmentIssue === 'Arive loan, borrower or originator did not match.' && previous.lastError === previous.enrollmentIssue) {
+            (previous.enrollmentIssue === 'Arive loan, borrower or originator did not match.' ||
+             previous.enrollmentIssue === 'The borrower name differs. The primary borrower’s middle name, full subject property, loan amount and contact did not verify the link.') &&
+            previous.lastError === previous.enrollmentIssue) {
           const [prior] = await priorPilotDiagnostics(tx, [pipelineId], config.updatedAt);
           recheckCorrectedFile = prior?.borrowerOnly === true && prior.loanId === row.loan.id &&
             prior.number === row.loan.loanNumber && prior.outcome === 'IDENTITY_MISMATCH';
@@ -457,13 +459,14 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
       throw new Error('REGRESSED');
     if (row.collectedAt && isMiddleNamePilotLink(row.identityHash) && number === row.ariveLoanId && guid !== row.ariveGuid)
       throw new PilotMatchReview('The permanent Arive file ID for the previously corroborated loan changed.');
-    const { identity, middleName, expected } = inspectPilotBorrower(details, loan, {
+    const { identity, middleName, expected, evidenceIssues } = inspectPilotBorrower(details, loan, {
       ariveGuid: guid,
       verifiedOriginatorEmail: pinned?.verifiedOriginatorEmail,
     });
     if (identity.issues.length === 1 && identity.issues[0] === 'BORROWER_NAME') {
       checkedBorrowerEvidence = true;
-      throw new PilotMatchReview('The borrower name differs. The primary borrower’s middle name, full subject property, loan amount and contact did not verify the link.');
+      const explanation = evidenceIssues.map(issue => issue[0].toUpperCase() + issue.slice(1) + '.').join(' ');
+      throw new PilotMatchReview(`The borrower name differs. ${explanation}`);
     }
     if (identity.issues.length) throw new PilotMatchReview('The permanent Arive ID, loan number, or assigned originator did not verify the link.');
     if (middleName && row.collectedAt && isMiddleNamePilotLink(row.identityHash) && row.ariveLoanId === number) {

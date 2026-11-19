@@ -102,8 +102,10 @@ describe('leadership file admission', () => {
 
   it('retries the old name-only check on explicit Sync once, never other exceptions or provider backoff', async () => {
     const legacy = 'Arive loan, borrower or originator did not match.';
+    const generic = 'The borrower name differs. The primary borrower’s middle name, full subject property, loan amount and contact did not verify the link.';
     for (const [watch, issue, lastError, borrowerOnly, expected] of [
       [false, legacy, legacy, true, true], [true, legacy, legacy, true, false], [false, legacy, legacy, false, false],
+      [false, generic, generic, true, true],
       [false, legacy, 'Arive collection deferred (BUSY).', true, false], [false, 'No exact loan number was found.', legacy, true, false],
       [false, 'The borrower name differs.', 'The borrower name differs.', true, false],
     ] as const) {

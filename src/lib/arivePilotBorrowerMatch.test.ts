@@ -40,4 +40,14 @@ describe('corroborating an imported middle name exclusively in the Pilot', () =>
     for (const change of [{ borrowerPhone: null }, { borrowerEmail: null }, { amount: 153000 }, { propertyAddress: null }, { loanNumber: '8002' }])
       expect(pilotIdentityMatches({ ...loan, ...change }, hash)).toBe(false);
   });
+
+  it('identifies missing and conflicting proof without returning private source values or relaxing admission', () => {
+    const result = inspectPilotBorrower({ ...details, baseLoanAmount: null, loanBorrowers: [{
+      ...borrower, middleName: undefined, emailAddressText: 'different@example.test',
+    }], subjectProperty: { ...property, postalCode: undefined } }, loan, saved);
+    expect(result.middleName).toBe(false);
+    expect(result.evidenceIssues).toEqual(['Arive API omitted the primary middle name', 'primary email differs',
+      'Arive API omitted the base loan amount', 'Arive API returned an incomplete subject address']);
+    expect(result.identity.issues).toEqual(['BORROWER_NAME']);
+  });
 });
