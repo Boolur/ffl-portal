@@ -268,6 +268,50 @@ describe('leadership-only collection', () => {
     ]);
     expect(session).not.toHaveBeenCalled();
   });
+  it('admits overdue active first-pass retries, new active loans and older work on other sheets without taking a future retry', async () => {
+    const h = harness();
+    const now = new Date();
+    Object.assign(h.control, { cohortLimit: null, lastHintScanAt: now });
+    const records = [
+      { id: 'due-active', sheet: 'PIPELINE', created: 3, due: new Date(+now - 60_000) },
+      { id: 'future-active', sheet: 'PIPELINE', created: 4, due: new Date(+now + 60_000) },
+      { id: 'old-funding', sheet: 'FUNDING', created: 0, due: null },
+      { id: 'old-restructure', sheet: 'RESTRUCTURE', created: 1, due: null },
+      ...Array.from({ length: 10 }, (_, index) => ({ id: 'new-active-' + index, sheet: 'PIPELINE', created: 5 + index, due: null })),
+    ];
+    const selected: string[] = [];
+    type Rule = { collectedAt?: null; enrollmentStatus?: string; pipeline?: unknown; OR?: unknown[] };
+    const findFirst = vi.fn(async (query: { where: { AND: Rule[] }; orderBy: Record<string, unknown>[] }) => {
+      const active = query.where.AND.find(rule => rule.enrollmentStatus === 'PENDING');
+      if (active) {
+        expect(active).toMatchObject({ collectedAt: null, pipeline: { sheet: 'PIPELINE', archivedAt: null },
+          OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] });
+        expect(query.where.AND[0]).toMatchObject({ AND: expect.arrayContaining([
+          { OR: [{ leaseUntil: null }, { leaseUntil: { lte: now } }] },
+          { OR: [{ lastAttemptAt: null }, { lastAttemptAt: { lte: new Date(+now - 10_000) } }] },
+        ]) });
+      }
+      // This fixture has no watched or scheduled refreshes. Leave both
+      // priority lanes idle so the actual admission turns drive every claim.
+      const order = query.orderBy[0].nextAttemptAt as { nulls: string } | undefined;
+      if (!order || (!active && order.nulls === 'last')) return null;
+      const nullOrder = order.nulls === 'last' ? Infinity : -Infinity;
+      const rank = (date: Date | null) => date ? +date : nullOrder;
+      const next = records.filter(r => !selected.includes(r.id) && (!r.due || r.due <= now) && (!active || r.sheet === 'PIPELINE'))
+        .sort((a,b) => rank(a.due) - rank(b.due) || a.created - b.created)[0];
+      if (!next) return null;
+      selected.push(next.id);
+      return { ...structuredClone(h.row), pipelineId: next.id };
+    });
+    const db = { ...h.db, processingPipelineLoan: { findMany: vi.fn(async () => []) },
+      pilotAriveProjection: { ...h.db.pilotAriveProjection, findFirst } };
+    db.$transaction.mockImplementation(async work => work(db));
+    await runLeadershipPilotCollection({ db: db as never, now: () => now, session: async () => h.api as never });
+    expect(selected).toHaveLength(13);
+    expect(selected.slice(0, 2).sort()).toEqual(['due-active','old-funding']);
+    expect(selected.indexOf('old-restructure')).toBeLessThan(selected.indexOf('new-active-9'));
+    expect(selected).not.toContain('future-active');
+  });
   it('wakes at the database scan deadline while a full-volume file is busy and cancels its timer on completion', async () => {
     const h = harness();
     let now = new Date();

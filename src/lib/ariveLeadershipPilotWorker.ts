@@ -264,7 +264,9 @@ function isEligible(file: { sheet: string; archivedAt: Date | null; fundedAt: Da
   );
 }
 
-async function claim(db: typeof prisma, now: Date, pipelineId: string | undefined, preferWatched: boolean) {
+const admissionTurns = ['active-retry', 'active-new', 'oldest'] as const;
+type AdmissionTurn = typeof admissionTurns[number];
+async function claim(db: typeof prisma, now: Date, pipelineId: string | undefined, preferWatched: boolean, turn: AdmissionTurn) {
   return db.$transaction(async (tx) => {
     await lock(tx);
     // Read the cohort slots, global lease slots and connection revision in one
@@ -311,14 +313,12 @@ async function claim(db: typeof prisma, now: Date, pipelineId: string | undefine
         },
       ],
     };
+    const fullAdmission = capacity.cohortLimit === null && !pipelineId && !preferWatched;
     const order: Prisma.PilotAriveProjectionOrderByWithRelationInput[] = [
-      // A new file has no due time until its first attempt. On a large rollout
-      // one lane admits these files while the other keeps serving due refreshes.
-      // Either lane can take the other's work when its own queue is empty.
       { nextAttemptAt: { sort: 'asc', nulls: preferWatched ? 'last' : 'first' } },
-      // Within the initial backlog, start with the active book, then Restructures
-      // and Fundings. Dated attempts still take their ordinary due-time order.
-      { pipeline: { sheet: 'asc' } },
+      // A reserved cross-sheet turn uses arrival order for untried files, so
+      // an influx of active loans cannot keep an older Restructure or Funding waiting.
+      ...(!fullAdmission || turn !== 'oldest' ? [{ pipeline: { sheet: 'asc' as const } }] : []),
       { createdAt: 'asc' },
       { pipelineId: 'asc' },
     ];
@@ -329,18 +329,32 @@ async function claim(db: typeof prisma, now: Date, pipelineId: string | undefine
         { hintRequestedAt: { not: null } },
       ],
     };
-    const prioritized =
-      preferWatched && !pipelineId
-        ? await tx.pilotAriveProjection.findFirst({
-            where: { AND: [eligible, priority] },
-            orderBy: [
-              { manualRefreshRequestedAt: { sort: 'asc', nulls: 'last' } },
-              { hintRequestedAt: { sort: 'asc', nulls: 'last' } },
-              ...order,
-            ],
-            include: includeFile,
-          })
-        : null;
+    let prioritized;
+    if (preferWatched && !pipelineId) {
+      prioritized = await tx.pilotAriveProjection.findFirst({
+        where: { AND: [eligible, priority] },
+        orderBy: [
+          { manualRefreshRequestedAt: { sort: 'asc', nulls: 'last' } },
+          { hintRequestedAt: { sort: 'asc', nulls: 'last' } },
+          ...order,
+        ],
+        include: includeFile,
+      });
+    } else if (fullAdmission && turn !== 'oldest') {
+      // A cron timeout gives a new file a real due date. Without this lane,
+      // it sits behind every untried file (NULL due date) on other sheets.
+      prioritized = await tx.pilotAriveProjection.findFirst({
+        where: { AND: [eligible, {
+          enrollmentStatus: 'PENDING', collectedAt: null, pipeline: { sheet: 'PIPELINE', archivedAt: null },
+          OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
+        }] },
+        orderBy: [
+          { nextAttemptAt: { sort: 'asc', nulls: turn === 'active-retry' ? 'last' : 'first' } },
+          { createdAt: 'asc' }, { pipelineId: 'asc' },
+        ],
+        include: includeFile,
+      });
+    }
     const row =
       prioritized ??
       (await tx.pilotAriveProjection.findFirst({ where: eligible, orderBy: order, include: includeFile }));
@@ -666,7 +680,7 @@ export async function runLeadershipPilotCollection(options: Options = {}) {
     }
     return false;
   }
-  async function drain(preferWatched: boolean) {
+  async function drain(preferWatched: boolean, admissionIndex = 0) {
     // The transport checks the saved credentials, current token, generation,
     // global HTTP slots and provider limits at every request. Reuse its session
     // in this sequential lane to avoid starting a new one for each loan.
@@ -676,7 +690,7 @@ export async function runLeadershipPilotCollection(options: Options = {}) {
       throw error;
     });
     while (!stopAdmission && Date.now() < deadlineMs - 30_000 && checked < 500) {
-      const job = await claim(db, now(), options.pipelineId, preferWatched);
+      const job = await claim(db, now(), options.pipelineId, preferWatched, admissionTurns[admissionIndex]);
       if (job === 'occupied') {
         if (options.pipelineId || Date.now() >= handoffUntil) break;
         handoff ??= waitForHandoff().finally(() => { handoff = undefined; });
@@ -706,6 +720,7 @@ export async function runLeadershipPilotCollection(options: Options = {}) {
         continue;
       }
       checked++;
+      admissionIndex = (admissionIndex + 1) % admissionTurns.length;
       const result = await collect(db, job, { ...options, deadlineMs, session });
       if (result === 'verified') succeeded++;
       if (result === 'busy') {
@@ -726,7 +741,7 @@ export async function runLeadershipPilotCollection(options: Options = {}) {
   // Each pair has one priority lane and one fair enrollment/sweep lane.
   const lanes = [drain(true)];
   if (!options.pipelineId) lanes.push(drain(false));
-  if (fullPipeline) lanes.push(drain(true), drain(false));
+  if (fullPipeline) lanes.push(drain(true), drain(false, 2));
   const hints = followRecentChanges();
   const completed = await Promise.allSettled(lanes).finally(() => hintTimer.abort());
   await hints;

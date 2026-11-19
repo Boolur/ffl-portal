@@ -19,6 +19,8 @@ describe('corroborating an imported middle name exclusively in the Pilot', () =>
     expect(inspectPilotBorrower(details, loan, saved)).toMatchObject({ middleName: true, expected: 'example sample', identity: { issues: [] } });
     expect(inspectPilotBorrower(details, { ...loan, borrowerEmail: null }, saved).middleName).toBe(true);
     expect(inspectPilotBorrower(details, { ...loan, borrowerPhone: null }, saved).middleName).toBe(true);
+    const homePhoneOnly = { ...borrower, mobilePhone10digit: undefined, emailAddressText: undefined, homePhone: loan.borrowerPhone };
+    expect(inspectPilotBorrower({ ...details, loanBorrowers: [homePhoneOnly] }, { ...loan, borrowerEmail: null }, saved).middleName).toBe(true);
   });
 
   it.each([

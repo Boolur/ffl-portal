@@ -21,7 +21,7 @@ function contactIssues(loan: AriveOneTimeLoan, borrower: Record<string, unknown>
   const email = normalizeAriveIdentity(loan.borrowerEmail);
   const sourceEmail = normalizeAriveIdentity(borrower.emailAddressText);
   const phone = phoneNumber(loan.borrowerPhone);
-  const phones = [borrower.mobilePhone10digit, borrower.homePhone10digit, borrower.workPhone].map(phoneNumber).filter(Boolean);
+  const phones = [borrower.mobilePhone10digit, borrower.homePhone, borrower.homePhone10digit, borrower.workPhone].map(phoneNumber).filter(Boolean);
   const emailAvailable = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && !/^(no[-_.]?email|no[-_.]?reply|unknown|none|n\.?a)@/.test(email) && !!sourceEmail;
   const phoneAvailable = !!phone && phones.length > 0;
   if (!emailAvailable && !phoneAvailable) return ['no comparable primary email or phone'];
