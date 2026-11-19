@@ -157,6 +157,6 @@ export default proxy;
 
 export const config = {
   matcher: [
-    '/((?!api/auth|api/internal/arive/sync(?:/|$)|api/internal/loan-officers|api/internal/notifications|api/internal/onboarding|api/internal/leads|api/webhooks/shape|api/webhooks/esign|api/webhooks/lead-mailbox|api/webhooks/leads|login|auth|_next|favicon.ico|.*\\..*).*)',
+    '/((?!api/auth|api/internal/arive/sync(?:/|$)|api/internal/arive/leadership-pilot/?$|api/internal/loan-officers|api/internal/notifications|api/internal/onboarding|api/internal/leads|api/webhooks/shape|api/webhooks/esign|api/webhooks/lead-mailbox|api/webhooks/leads|login|auth|_next|favicon.ico|.*\\..*).*)',
   ],
 };
