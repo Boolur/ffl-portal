@@ -243,6 +243,63 @@ describe('leadership-only collection', () => {
     ]);
     expect(session).not.toHaveBeenCalled();
   });
+  it.each([{ limit: 50, slots: 2 }, { limit: null, slots: 4 }])(
+    'stages $slots independent file reads at cohort $limit while honoring one lease per file', async ({ limit, slots }) => {
+      const h = harness();
+      Object.assign(h.control, { cohortLimit: limit, lastHintScanAt: new Date() });
+      const db = { ...h.db, processingPipelineLoan: { findMany: vi.fn(async () => []) } };
+      db.$transaction.mockImplementation(async work => work(db));
+      let claimed = 0;
+      h.db.pilotAriveProjection.findFirst.mockImplementation(async () => {
+        if (claimed === slots) return null;
+        return { ...structuredClone(h.row), pipelineId: 'file-' + ++claimed };
+      });
+      let release!: () => void;
+      const resume = new Promise<void>(resolve => { release = resolve; });
+      const session = vi.fn(async () => async (path: string) => {
+        await resume;
+        return h.api(path);
+      });
+      const running = runLeadershipPilotCollection({ db: db as never, session: session as never });
+      await vi.waitFor(() => expect(session).toHaveBeenCalledTimes(slots));
+      const leased = h.db.pilotAriveProjection.update.mock.calls
+        .filter(([query]) => query.data.leaseToken).map(([query]) => query.where.pipelineId);
+      expect(new Set(leased).size).toBe(slots);
+      release();
+      await running;
+    },
+  );
+  it.each([
+    { limit: 50, active: 2, admitted: false },
+    { limit: null, active: 3, admitted: true },
+    { limit: null, active: 4, admitted: false },
+  ])('rechecks the global file cap against overlapping invocations: $limit / $active', async ({ limit, active, admitted }) => {
+    const h = harness();
+    const query = h.db.$queryRaw.getMockImplementation()!;
+    h.db.$queryRaw.mockImplementation(async parts => parts.join('?').includes('slots.active')
+      ? [{ generation: 1, cohortLimit: limit, revision: new Date('2026-04-01'), active, reserved: active }]
+      : query(parts));
+    expect((await h.run()).checked).toBe(admitted ? 1 : 0);
+    expect(h.api.mock.calls.length > 0).toBe(admitted);
+  });
+  it('lets the other lane finish the queue after a local HTTP slot timeout and reuses its session', async () => {
+    const h = harness();
+    Object.assign(h.control, { lastHintScanAt: new Date() });
+    const db = { ...h.db, processingPipelineLoan: { findMany: vi.fn(async () => []) } };
+    db.$transaction.mockImplementation(async work => work(db));
+    let claimed = 0;
+    h.db.pilotAriveProjection.findFirst.mockImplementation(async () => claimed < 4
+      ? { ...structuredClone(h.row), pipelineId: 'queued-' + ++claimed } : null);
+    const session = vi.fn()
+      .mockResolvedValueOnce(async () => { throw new AriveTransportError('BUSY', 'Both HTTP slots are in use.'); })
+      .mockResolvedValue(async (path: string) => {
+        await new Promise<void>(resolve => setImmediate(resolve));
+        return h.api(path);
+      });
+    const summary = await runLeadershipPilotCollection({ db: db as never, session });
+    expect(summary).toMatchObject({ checked: 4, deferred: 1 });
+    expect(session).toHaveBeenCalledTimes(2);
+  });
   it('shares one standby and claims the due file as soon as the previous cron releases both leases', async () => {
     const h = harness();
     const db = {

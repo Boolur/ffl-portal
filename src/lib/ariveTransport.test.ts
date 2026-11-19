@@ -116,6 +116,31 @@ describe('shared Arive request budget', () => {
     pending.forEach(item => item.resolve(Response.json({ ok: true }))); await Promise.all([one, two]);
     expect(h.requests.every(row => row.finishedAt)).toBe(true);
   });
+  it('drains four independent full-Pilot file sessions through only two shared HTTP slots', async () => {
+    const h = operatorFixture();
+    const wake = deferred<void>();
+    const sleep = vi.fn(() => wake.promise);
+    const pilotOptions = { ...h.options, leadershipPilot: true, readOnly: true, sleep };
+    const first = await createAriveTransportSession(pilotOptions);
+    const sessions = [first, ...await Promise.all(Array.from({ length: 3 }, () => createAriveTransportSession(pilotOptions)))];
+    const pending = [deferred<Response>(), deferred<Response>()];
+    let sent = 0;
+    let maximumActive = 0;
+    h.fetcher.mockClear();
+    h.fetcher.mockImplementation(async () => {
+      maximumActive = Math.max(maximumActive, h.requests.filter(row => !row.finishedAt).length);
+      return pending[sent++]?.promise ?? Response.json({ ok: true });
+    });
+    const reads = sessions.map((session, index) => session('/loans/test-' + index));
+    await vi.waitFor(() => expect(sleep).toHaveBeenCalledTimes(2));
+    expect(h.fetcher).toHaveBeenCalledTimes(2);
+    pending.forEach(item => item.resolve(Response.json({ ok: true })));
+    await vi.waitFor(() => expect(h.requests.filter(row => !row.finishedAt)).toHaveLength(0));
+    wake.resolve();
+    await Promise.all(reads);
+    expect(maximumActive).toBe(2);
+    expect(h.requests.filter(row => row.kind === 'PILOT_GET' && row.finishedAt)).toHaveLength(4);
+  });
   it('lets an unreserved third call wait for a global slot without sending or charging retries', async () => {
     const h = fixture(); const first = await createAriveTransportSession(h.options);
     const pending = [deferred<Response>(), deferred<Response>()]; let index = 0; let maxActive = 0;

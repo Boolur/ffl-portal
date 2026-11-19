@@ -18,6 +18,8 @@ import { previousPilotReview, priorPilotDiagnostics } from './ariveLeadershipPil
 const CONNECTION = 'company';
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
+const COHORT_FILE_SLOTS = 2;
+const FULL_PIPELINE_FILE_SLOTS = 4;
 const selectLoan = {
   ...rolloutLoanSelect,
   amount: true,
@@ -179,6 +181,7 @@ async function discover(db: typeof prisma, now: Date) {
       });
       await tx.pilotAriveControl.update({ where: { id: CONNECTION }, data: { revision: { increment: 1 } } });
     }
+    return control.cohortLimit === null;
   }, transactionOptions);
 }
 
@@ -268,7 +271,8 @@ async function claim(db: typeof prisma, now: Date, pipelineId: string | undefine
       ) slots
       WHERE c.id=${CONNECTION} AND c.enabled`;
     if (!capacity) return null;
-    if (capacity.active >= 2) return 'occupied' as const;
+    const fileSlots = capacity.cohortLimit === null ? FULL_PIPELINE_FILE_SLOTS : COHORT_FILE_SLOTS;
+    if (capacity.active >= fileSlots) return 'occupied' as const;
     const statuses =
       capacity.cohortLimit !== null && capacity.reserved >= capacity.cohortLimit
         ? ['VERIFIED']
@@ -555,6 +559,7 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
         await tx.pilotAriveControl.update({ where: { id: CONNECTION }, data: { revision: { increment: 1 } } });
       }
     });
+    if (deferred && error.code === 'BUSY') return 'busy' as const;
     return deferred ? ('deferred' as const) : ('held' as const);
   }
 }
@@ -567,13 +572,15 @@ export async function runLeadershipPilotCollection(options: Options = {}) {
   let checked = 0,
     succeeded = 0,
     deferred = 0;
+  let stopAdmission = false;
+  let fullPipeline = false;
   const deadlineMs = options.deadlineMs ?? Date.now() + 110_000;
   const handoffUntil = Math.min(deadlineMs - 30_000, Date.now() + 55_000);
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)));
   let handoff: Promise<boolean> | undefined;
   if (!allowedEnvironment() || Date.now() >= deadlineMs - 30_000) return { checked, succeeded, deferred };
   if (!options.pipelineId) {
-    await discover(db, now());
+    fullPipeline = (await discover(db, now())) === true;
     try {
       await collectPilotChangeHints(db, now(), options.session ?? ariveLeadershipPilotReadSession);
     } catch {
@@ -581,15 +588,16 @@ export async function runLeadershipPilotCollection(options: Options = {}) {
     }
   }
   async function waitForHandoff() {
-    // A new minute's cron can arrive while BOTH previous lanes are leased.
+    // A new minute's cron can arrive while the previous lanes are all leased.
     // Keep a single standby shared by this invocation's lanes until one opens.
     // This SELECT is only a wake-up hint. Admission still takes the worker lock.
     // An explicit bounded sample count also handles delayed or stationary clocks.
-    for (let sample = 0; sample < 10 && !deferred && Date.now() < handoffUntil; sample++) {
+    for (let sample = 0; sample < 10 && !stopAdmission && Date.now() < handoffUntil; sample++) {
       const sampledAt = now();
       const [state] = await db.$queryRaw<Array<{ open: boolean }>>`
         SELECT (SELECT COUNT(*) FROM "PilotAriveProjection" leased WHERE leased."leaseToken" IS NOT NULL
-                  AND leased."leaseUntil">${sampledAt})<2 AS open
+                  AND leased."leaseUntil">${sampledAt}) <
+               CASE WHEN c."cohortLimit" IS NULL THEN ${FULL_PIPELINE_FILE_SLOTS} ELSE ${COHORT_FILE_SLOTS} END AS open
         FROM "PilotAriveControl" c WHERE c.id=${CONNECTION} AND c.enabled
           AND EXISTS (SELECT 1 FROM "PilotAriveProjection" p WHERE p."enrollmentStatus"='VERIFIED'
             AND ((p."archivedAt" IS NULL AND p.sheet IN ('PIPELINE','RESTRUCTURE'))
@@ -604,7 +612,15 @@ export async function runLeadershipPilotCollection(options: Options = {}) {
     return false;
   }
   async function drain(preferWatched: boolean) {
-    while (!deferred && Date.now() < deadlineMs - 30_000 && checked < 500) {
+    // The transport checks the saved credentials, current token, generation,
+    // global HTTP slots and provider limits at every request. Reuse its session
+    // in this sequential lane to avoid starting a new one for each loan.
+    let connected: ReturnType<typeof ariveLeadershipPilotReadSession> | undefined;
+    const session = () => connected ??= (options.session ?? ariveLeadershipPilotReadSession)().catch(error => {
+      connected = undefined;
+      throw error;
+    });
+    while (!stopAdmission && Date.now() < deadlineMs - 30_000 && checked < 500) {
       const job = await claim(db, now(), options.pipelineId, preferWatched);
       if (job === 'occupied') {
         if (options.pipelineId || Date.now() >= handoffUntil) break;
@@ -625,7 +641,8 @@ export async function runLeadershipPilotCollection(options: Options = {}) {
             AND p."nextAttemptAt"<=${new Date(+sampledAt+30_000)}
             AND (p."leaseToken" IS NULL OR p."leaseUntil"<=${sampledAt})
             AND (SELECT COUNT(*) FROM "PilotAriveProjection" active WHERE active."leaseToken" IS NOT NULL
-                 AND active."leaseUntil">${sampledAt})<2
+                 AND active."leaseUntil">${sampledAt}) <
+                CASE WHEN c."cohortLimit" IS NULL THEN ${FULL_PIPELINE_FILE_SLOTS} ELSE ${COHORT_FILE_SLOTS} END
           ORDER BY p."nextAttemptAt" LIMIT 1`;
         if (!upcoming) break;
         const delay = Math.max(50, +upcoming.due - +now());
@@ -634,17 +651,27 @@ export async function runLeadershipPilotCollection(options: Options = {}) {
         continue;
       }
       checked++;
-      const result = await collect(db, job, { ...options, deadlineMs });
+      const result = await collect(db, job, { ...options, deadlineMs, session });
       if (result === 'verified') succeeded++;
-      if (result === 'deferred') deferred++;
+      if (result === 'busy') {
+        // A local HTTP slot wait timed out. Retire this lane; other lanes may
+        // already hold the slots and should finish serving the queue.
+        deferred++;
+        break;
+      }
+      if (result === 'deferred') {
+        deferred++;
+        stopAdmission = true;
+      }
       if (options.pipelineId) break;
     }
   }
-  // Each finished loan releases its lane immediately, including when its
-  // neighbor is still collecting a long note history. Both lanes use the
-  // same per-loan lease, cohort cap and provider request reservations.
+  // At full volume, overlap the database checks and publication of two
+  // additional files with the two globally reserved provider HTTP slots.
+  // Each pair has one priority lane and one fair enrollment/sweep lane.
   const lanes = [drain(true)];
   if (!options.pipelineId) lanes.push(drain(false));
+  if (fullPipeline) lanes.push(drain(true), drain(false));
   const completed = await Promise.allSettled(lanes);
   const failed = completed.find((lane) => lane.status === 'rejected');
   if (failed) throw failed.reason;

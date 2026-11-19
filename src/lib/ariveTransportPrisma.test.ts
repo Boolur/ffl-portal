@@ -127,12 +127,16 @@ describe('shared transport deployment and quota gates', () => {
   });
   it('cleans only a bounded expired batch outside every supported quota window', async () => {
     const now = new Date('2026-11-12T19:00:30Z'); const cutoff = new Date(now.getTime() - 31_536_000_000);
-    mock.expired.mockResolvedValue([{ id: 'old-1' }, { id: 'old-2' }]);
     const request = { id: 'new', connectionId: 'company', keyFingerprint: 'synthetic-hash', kind: 'GET', startedAt: now, leaseUntil: new Date(now.getTime() + 45000), finishedAt: null, statusCode: null };
     await createPrismaAriveTransportStore().transaction(tx => tx.createRequest(request));
-    expect(mock.expired).toHaveBeenCalledWith({ where: { connectionId: 'company', startedAt: { lt: cutoff }, leaseUntil: { lt: now } }, select: { id: true }, orderBy: { startedAt: 'asc' }, take: 1000 });
-    expect(mock.remove).toHaveBeenCalledWith({ where: { connectionId: 'company', id: { in: ['old-1', 'old-2'] }, startedAt: { lt: cutoff }, leaseUntil: { lt: now } } });
-    expect(mock.create).toHaveBeenCalledWith({ data: request });
+    expect(mock.lock).toHaveBeenCalledTimes(2); // advisory lock, then atomic cleanup and insert
+    const [parts, ...parameters] = mock.lock.mock.calls[1];
+    const sql = parts.join('?');
+    expect(sql).toContain('WHERE "connectionId"=? AND "startedAt"<? AND "leaseUntil"<?');
+    expect(sql).toContain('ORDER BY "startedAt" LIMIT ?');
+    expect(sql).toContain('DELETE FROM "AriveTransportRequest" r USING expired WHERE r.id=expired.id');
+    expect(sql).toContain('INSERT INTO "AriveTransportRequest"');
+    expect(parameters).toEqual(['company', cutoff, now, 1000, request.id, 'company', request.keyFingerprint, 'GET', now, request.leaseUntil, null, null]);
   });
   it('finishes only the exact active reservation atomically without a global transaction or removing budget history', async () => {
     const finishedAt = new Date('2026-11-12T19:00:30Z');

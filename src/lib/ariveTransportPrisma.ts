@@ -47,9 +47,20 @@ export function createPrismaAriveTransportStore(db: Database = prisma): AriveTra
         activeRequests: now => tx.ariveTransportRequest.count({ where: { connectionId: CONNECTION, finishedAt: null, leaseUntil: { gt: now } } }),
         createRequest: async request => {
           const cutoff = new Date(request.startedAt.getTime() - REQUEST_RETENTION_MS);
-          const expired = await tx.ariveTransportRequest.findMany({ where: { connectionId: CONNECTION, startedAt: { lt: cutoff }, leaseUntil: { lt: request.startedAt } }, select: { id: true }, orderBy: { startedAt: 'asc' }, take: REQUEST_CLEANUP_BATCH });
-          if (expired.length) await tx.ariveTransportRequest.deleteMany({ where: { connectionId: CONNECTION, id: { in: expired.map(item => item.id) }, startedAt: { lt: cutoff }, leaseUntil: { lt: request.startedAt } } });
-          await tx.ariveTransportRequest.create({ data: request });
+          // Keep cleanup and reservation under the same admission lock, with
+          // one database round trip even when there are old requests to prune.
+          await tx.$executeRaw`
+            WITH expired AS (
+              SELECT id FROM "AriveTransportRequest"
+              WHERE "connectionId"=${CONNECTION} AND "startedAt"<${cutoff} AND "leaseUntil"<${request.startedAt}
+              ORDER BY "startedAt" LIMIT ${REQUEST_CLEANUP_BATCH}
+            ), removed AS (
+              DELETE FROM "AriveTransportRequest" r USING expired WHERE r.id=expired.id
+            )
+            INSERT INTO "AriveTransportRequest"
+              (id,"connectionId","keyFingerprint",kind,"startedAt","leaseUntil","finishedAt","statusCode")
+            VALUES (${request.id},${request.connectionId},${request.keyFingerprint},${request.kind},
+                    ${request.startedAt},${request.leaseUntil},${request.finishedAt},${request.statusCode})`;
         },
       });
     }, { maxWait: 5000, timeout: 10000 }),
